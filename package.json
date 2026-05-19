@@ -1,0 +1,37 @@
+{
+  "name": "lands-of-glory",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Lands of Glory - Digital Board Game Prototype",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "install": "npm install && npm --workspace=@lands-of-glory/game-core run build",
+    "dev": "npm --workspace=lands-of-glory-prototype run dev",
+    "build": "npm --workspace=@lands-of-glory/game-core run build && npm --workspace=lands-of-glory-prototype run build",
+    "test": "npm --workspace=@lands-of-glory/game-core run test",
+    "test:watch": "npm --workspace=@lands-of-glory/game-core run test:watch",
+    "test:e2e": "npm --workspace=lands-of-glory-prototype run test:e2e",
+    "lint": "npm --workspace=@lands-of-glory/game-core run lint && npm --workspace=lands-of-glory-prototype run lint",
+    "type-check": "npm --workspace=@lands-of-glory/game-core run type-check && npm --workspace=lands-of-glory-prototype run type-check"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/maieuticus/lands-of-glory.git"
+  },
+  "keywords": [
+    "board-game",
+    "tactical",
+    "pixi",
+    "typescript"
+  ],
+  "author": "",
+  "license": "MIT",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/maieuticus/lands-of-glory/issues"
+  },
+  "homepage": "https://github.com/maieuticus/lands-of-glory#readme"
+}

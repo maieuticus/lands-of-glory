@@ -1,0 +1,37 @@
+{
+  "name": "lands-of-glory-prototype",
+  "version": "1.0.0",
+  "description": "PixiJS UI for Lands of Glory board game",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "test:e2e": "cypress run",
+    "test:e2e:open": "cypress open",
+    "lint": "eslint src tests --ext .ts,.tsx",
+    "type-check": "tsc --noEmit"
+  },
+  "keywords": [
+    "pixi",
+    "game",
+    "typescript"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@lands-of-glory/game-core": "*",
+    "pixi.js": "^7.0.0"
+  },
+  "devDependencies": {
+    "@cypress/schematic": "^2.5.0",
+    "@types/node": "^20.0.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "@vitejs/plugin-vue": "^4.0.0",
+    "cypress": "^13.0.0",
+    "eslint": "^8.0.0",
+    "prettier": "^3.0.0",
+    "typescript": "^5.0.0",
+    "vite": "^4.0.0"
+  }
+}
