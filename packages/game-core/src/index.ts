@@ -12,12 +12,14 @@ export type {
   CommanderId,
   PlayerId,
   GameId,
+  BannerId,
   TroopType,
   TerrainType,
   GameStatus,
   Position,
   Unit,
   Commander,
+  Banner,
   Tile,
   Board,
   PlayerConfig,
@@ -34,6 +36,7 @@ export {
   createCommanderId,
   createPlayerId,
   createGameId,
+  createBannerId,
   BOARD_WIDTH,
   BOARD_HEIGHT,
   COMMANDER_SLOTS,
@@ -91,5 +94,14 @@ export {
 
 // Re-export RNG
 export { SeededRNG, createRNG } from './rng';
+
+// Re-export combat types and functions
+export type { DieRoll, PairResult, CombatResult } from './combat';
+
+export {
+  resolveCombat,
+  applyCombatResult,
+  canAttack,
+} from './combat';
 
 export const GAME_CORE_VERSION = '1.0.0';

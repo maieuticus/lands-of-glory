@@ -2,38 +2,65 @@
  * apps/prototype/src/controller/game-controller.ts
  *
  * Game controller for input handling and state management
- *
- * Responsible for:
- * - Translating input events into game actions
- * - Managing game state transitions
- * - Coordinating between renderer and game-core
- * - Handling validation and error display
+ * PRODUCTION VERSION with all features
  */
 
 import {
   GameState,
   Position,
   CommanderId,
+  Commander,
+  Unit,
   createGame,
   startGame,
   endTurn,
+  getWinner,
   GameConfig,
   GameRuleError,
+  TROOP_STATS,
+  resolveCombat,
+  applyCombatResult,
+  canAttack,
+  createRNG,
+  Banner,
+  CombatResult,
 } from '@lands-of-glory/game-core';
-import { GameRenderer, UIState } from '../renderer/game-renderer';
+import { GameRenderer, UIState, DragCallbacks } from '../renderer/game-renderer';
 
 /**
- * Game controller
+ * Combat log entry
+ */
+interface CombatLogEntry {
+  id: string;
+  turn: number;
+  type: 'move' | 'attack' | 'capture' | 'victory' | 'turn_end';
+  message: string;
+  timestamp: Date;
+  details?: {
+    attacker?: string;
+    defender?: string;
+    casualties?: number;
+    attackerLosses?: number;
+    defenderLosses?: number;
+  };
+}
+
+/**
+ * Game controller - PRODUCTION VERSION
  */
 export class GameController {
   private gameState: GameState;
   private renderer: GameRenderer;
   private uiState: UIState = { debugEnabled: false };
   private selectedCommanderId?: CommanderId;
+  private combatLog: CombatLogEntry[] = [];
+  private logCallbacks: ((entry: CombatLogEntry) => void)[] = [];
+  private onVictoryCallbacks: ((winner: string) => void)[] = [];
 
   constructor(gameState: GameState, renderer: GameRenderer) {
     this.gameState = gameState;
     this.renderer = renderer;
+    this.setupDragCallbacks();
   }
 
   /**
@@ -51,43 +78,107 @@ export class GameController {
   }
 
   /**
+   * Get combat log
+   */
+  getCombatLog(): CombatLogEntry[] {
+    return [...this.combatLog];
+  }
+
+  /**
+   * Subscribe to combat log updates
+   */
+  onCombatLog(callback: (entry: CombatLogEntry) => void): () => void {
+    this.logCallbacks.push(callback);
+    return () => {
+      const index = this.logCallbacks.indexOf(callback);
+      if (index > -1) {
+        this.logCallbacks.splice(index, 1);
+      }
+    };
+  }
+
+  /**
+   * Subscribe to victory event
+   */
+  onVictory(callback: (winner: string) => void): () => void {
+    this.onVictoryCallbacks.push(callback);
+    return () => {
+      const index = this.onVictoryCallbacks.indexOf(callback);
+      if (index > -1) {
+        this.onVictoryCallbacks.splice(index, 1);
+      }
+    };
+  }
+
+  /**
    * Initialize game and start playing
    */
   initializeGame(): void {
     this.gameState = startGame(this.gameState);
+    this.addLogEntry({
+      type: 'turn_end',
+      message: `Game started! ${this.gameState.players[0].name}'s turn.`,
+    });
     this.render();
   }
 
   /**
-   * Handle tile click
+   * Setup drag-and-drop event callbacks
    */
-  handleTileClick(position: Position, button: number = 0): void {
-    if (button !== 0) return;
+  private setupDragCallbacks(): void {
+    const callbacks: DragCallbacks = {
+      onDragStart: (commanderId: string) => {
+        const commander = this.gameState.commanders.get(commanderId as CommanderId);
+        if (!commander) return;
 
-    const selectedId = this.selectedCommanderId;
-    if (!selectedId) {
-      // No commander selected, try to select one at this position
-      this.selectCommanderAtPosition(position);
-      return;
-    }
+        // Check if it's the current player's commander
+        const activePlayer = this.gameState.players.find(p => p.id === this.gameState.activePlayerId);
+        if (!activePlayer?.commanders.includes(commanderId as CommanderId)) {
+          this.showError('Not your commander!');
+          return;
+        }
 
-    // Try to move selected commander
-    this.tryMoveCommander(selectedId, position);
-  }
+        // Check if commander has already acted
+        if (commander.hasActedThisTurn) {
+          this.showError('Commander has already acted this turn');
+          return;
+        }
 
-  /**
-   * Handle commander click
-   */
-  handleCommanderClick(commanderId: CommanderId, button: number = 0): void {
-    if (button === 0) {
-      // Left click: select commander
-      this.selectedCommanderId = commanderId;
-    } else if (button === 2) {
-      // Right click: deselect
-      this.selectedCommanderId = undefined;
-    }
+        this.selectedCommanderId = commanderId as CommanderId;
+        this.uiState.selectedCommanderId = commanderId;
+        this.uiState.draggedCommanderId = commanderId;
+        this.render();
+      },
+      onDragMove: (position: Position) => {
+        this.uiState.currentDragTarget = position;
+        this.render();
+      },
+      onDragEnd: (commanderId: string, target: Position) => {
+        this.uiState.draggedCommanderId = undefined;
+        this.uiState.currentDragTarget = undefined;
 
-    this.render();
+        if (!this.selectedCommanderId) return;
+
+        // Check if there's an enemy at target position (potential attack)
+        const enemyCommander = this.findEnemyCommanderAtPosition(target);
+        if (enemyCommander) {
+          this.tryAttackCommander(this.selectedCommanderId, enemyCommander.id);
+          return;
+        }
+
+        // Check if there's an enemy banner at target position
+        const enemyBanner = this.findEnemyBannerAtPosition(target);
+        if (enemyBanner) {
+          this.tryAttackBanner(this.selectedCommanderId, enemyBanner);
+          return;
+        }
+
+        // Try to move selected commander
+        this.tryMoveCommander(this.selectedCommanderId, target);
+      },
+    };
+
+    this.renderer.setDragCallbacks(callbacks);
   }
 
   /**
@@ -96,37 +187,17 @@ export class GameController {
   handleKeyDown(key: string, modifiers: { shift: boolean; ctrl: boolean; alt: boolean }): void {
     switch (key.toUpperCase()) {
       case 'D':
-        // Toggle debug mode
         this.uiState.debugEnabled = !this.uiState.debugEnabled;
         this.render();
         break;
       case 'E':
-        // End turn
         this.tryEndTurn();
         break;
       case 'ESCAPE':
-        // Deselect
         this.selectedCommanderId = undefined;
+        this.uiState.selectedCommanderId = undefined;
         this.render();
         break;
-    }
-  }
-
-  /**
-   * Select a commander at a given position
-   */
-  private selectCommanderAtPosition(position: Position): void {
-    // Find commander at position
-    for (const commander of this.gameState.commanders.values()) {
-      if (commander.position.x === position.x && commander.position.y === position.y) {
-        // Check if it's this player's commander
-        const activePlayer = this.gameState.players.find((p) => p.id === this.gameState.activePlayerId);
-        if (activePlayer && activePlayer.commanders.includes(commander.id)) {
-          this.selectedCommanderId = commander.id;
-          this.render();
-          return;
-        }
-      }
     }
   }
 
@@ -141,7 +212,19 @@ export class GameController {
         return;
       }
 
-      // Validate it's a valid move
+      // Check if commander has already acted this turn
+      if (commander.hasActedThisTurn) {
+        this.showError('Commander has already acted this turn');
+        return;
+      }
+
+      // Check if commander is held by enemy infantry
+      if (this.isCommanderHeld(commanderId)) {
+        this.showError('Commander is held by enemy infantry! Can only attack the holder.');
+        return;
+      }
+
+      // Validate move distance
       const distance = Math.max(
         Math.abs(commander.position.x - target.x),
         Math.abs(commander.position.y - target.y)
@@ -152,12 +235,33 @@ export class GameController {
         return;
       }
 
-      if (distance > 3) {
-        this.showError('Move too far');
+      const maxDistance = TROOP_STATS[commander.type].moveRange;
+      if (distance > maxDistance) {
+        this.showError(`Too far! Max ${maxDistance} tiles for ${commander.type}`);
         return;
       }
 
-      // For now, simple implementation: just update position
+      // Check if target is occupied
+      for (const otherCmd of this.gameState.commanders.values()) {
+        if (otherCmd.id !== commanderId &&
+            otherCmd.position.x === target.x &&
+            otherCmd.position.y === target.y) {
+          this.showError('Position occupied');
+          return;
+        }
+      }
+
+      // Check if target is occupied by a banner
+      for (const banner of this.gameState.banners.values()) {
+        if (banner.position.x === target.x &&
+            banner.position.y === target.y &&
+            banner.status === 'standing') {
+          this.showError('Cannot move onto banner');
+          return;
+        }
+      }
+
+      // Move commander
       const newGameState = {
         ...this.gameState,
         commanders: new Map(this.gameState.commanders),
@@ -166,18 +270,274 @@ export class GameController {
       const updatedCommander = {
         ...commander,
         position: target,
+        hasActedThisTurn: true,
       };
 
       newGameState.commanders.set(commanderId, updatedCommander);
       this.gameState = newGameState;
 
-      this.showMessage('Commander moved', 'success');
+      this.selectedCommanderId = undefined;
+      this.uiState.selectedCommanderId = undefined;
+
+      // Add to combat log
+      this.addLogEntry({
+        type: 'move',
+        message: `${commander.type} moved to (${target.x}, ${target.y})`,
+      });
+
+      this.showMessage(`${commander.type} moved`, 'success');
       this.render();
     } catch (error) {
       if (error instanceof GameRuleError) {
         this.showError(error.message);
       } else {
-        this.showError('An error occurred');
+        this.showError('Move failed');
+      }
+    }
+  }
+
+  /**
+   * Check if commander is held by enemy infantry
+   * Per Spec 004: Infantry holds adjacent enemy commanders
+   */
+  private isCommanderHeld(commanderId: CommanderId): boolean {
+    const commander = this.gameState.commanders.get(commanderId);
+    if (!commander) return false;
+
+    // Check all adjacent positions for enemy infantry
+    const adjacentPositions = [
+      { x: commander.position.x - 1, y: commander.position.y },
+      { x: commander.position.x + 1, y: commander.position.y },
+      { x: commander.position.x, y: commander.position.y - 1 },
+      { x: commander.position.x, y: commander.position.y + 1 },
+      { x: commander.position.x - 1, y: commander.position.y - 1 },
+      { x: commander.position.x + 1, y: commander.position.y - 1 },
+      { x: commander.position.x - 1, y: commander.position.y + 1 },
+      { x: commander.position.x + 1, y: commander.position.y + 1 },
+    ];
+
+    for (const [id, cmd] of this.gameState.commanders) {
+      if (cmd.playerId !== commander.playerId &&
+          cmd.type === 'infantry' &&
+          adjacentPositions.some(pos => pos.x === cmd.position.x && pos.y === cmd.position.y)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Get the commander holding this commander (if any)
+   */
+  private getHoldingCommander(commanderId: CommanderId): Commander | undefined {
+    const commander = this.gameState.commanders.get(commanderId);
+    if (!commander) return undefined;
+
+    const adjacentPositions = [
+      { x: commander.position.x - 1, y: commander.position.y },
+      { x: commander.position.x + 1, y: commander.position.y },
+      { x: commander.position.x, y: commander.position.y - 1 },
+      { x: commander.position.x, y: commander.position.y + 1 },
+      { x: commander.position.x - 1, y: commander.position.y - 1 },
+      { x: commander.position.x + 1, y: commander.position.y - 1 },
+      { x: commander.position.x - 1, y: commander.position.y + 1 },
+      { x: commander.position.x + 1, y: commander.position.y + 1 },
+    ];
+
+    for (const [id, cmd] of this.gameState.commanders) {
+      if (cmd.playerId !== commander.playerId &&
+          cmd.type === 'infantry' &&
+          adjacentPositions.some(pos => pos.x === cmd.position.x && pos.y === cmd.position.y)) {
+        return cmd;
+      }
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Try to attack an enemy commander
+   */
+  private tryAttackCommander(attackerId: CommanderId, defenderId: CommanderId): void {
+    try {
+      // Validate attack
+      const validation = canAttack(this.gameState, attackerId, defenderId);
+      if (!validation.valid) {
+        this.showError(validation.reason || 'Invalid attack');
+        return;
+      }
+
+      const attacker = this.gameState.commanders.get(attackerId);
+      const defender = this.gameState.commanders.get(defenderId);
+
+      if (!attacker || !defender) {
+        this.showError('Commander not found');
+        return;
+      }
+
+      // Check archer rule: can only move OR shoot, not both
+      if (attacker.type === 'archer' && this.hasCommanderMovedThisTurn(attackerId)) {
+        this.showError('Archers can only move OR shoot in a turn, not both');
+        return;
+      }
+
+      // Check if attacker is held - can only attack holder
+      if (this.isCommanderHeld(attackerId)) {
+        const holder = this.getHoldingCommander(attackerId);
+        if (!holder || holder.id !== defenderId) {
+          this.showError('Held commander can only attack the infantry holding them!');
+          return;
+        }
+      }
+
+      // Create RNG for combat
+      const rng = createRNG(Date.now());
+
+      // Resolve combat
+      const combatResult = resolveCombat(this.gameState, attackerId, defenderId, rng);
+
+      // Apply combat result
+      this.gameState = applyCombatResult(this.gameState, combatResult);
+
+      // Mark attacker as having acted
+      const updatedAttacker = this.gameState.commanders.get(attackerId);
+      if (updatedAttacker) {
+        const updatedCommanders = new Map(this.gameState.commanders);
+        updatedCommanders.set(attackerId, { ...updatedAttacker, hasActedThisTurn: true });
+        this.gameState = { ...this.gameState, commanders: updatedCommanders };
+      }
+
+      // Build result message and log
+      this.logCombatResult(combatResult, attacker, defender);
+
+      this.selectedCommanderId = undefined;
+      this.uiState.selectedCommanderId = undefined;
+
+      // Check victory conditions
+      this.checkVictoryConditions();
+
+      this.render();
+    } catch (error) {
+      if (error instanceof GameRuleError) {
+        this.showError(error.message);
+      } else {
+        this.showError('Combat failed');
+      }
+    }
+  }
+
+  /**
+   * Check if commander has already moved this turn
+   */
+  private hasCommanderMovedThisTurn(commanderId: CommanderId): boolean {
+    const commander = this.gameState.commanders.get(commanderId);
+    return commander?.hasActedThisTurn ?? false;
+  }
+
+  /**
+   * Log combat result
+   */
+  private logCombatResult(
+    result: CombatResult,
+    attacker: Commander,
+    defender: Commander
+  ): void {
+    const attackerName = `${attacker.isKing ? 'King ' : ''}${attacker.type}`;
+    const defenderName = `${defender.isKing ? 'King ' : ''}${defender.type}`;
+
+    let message = `${attackerName} attacked ${defenderName}! `;
+    message += `Attacker lost ${result.attackerCasualties.length}, `;
+    message += `Defender lost ${result.defenderCasualties.length}.`;
+
+    if (result.attackerCommanderDefeated) {
+      message += ` ${attackerName} defeated!`;
+    }
+    if (result.defenderCommanderDefeated) {
+      message += ` ${defenderName} defeated!`;
+    }
+
+    this.addLogEntry({
+      type: 'attack',
+      message,
+      details: {
+        attacker: attackerName,
+        defender: defenderName,
+        attackerLosses: result.attackerCasualties.length,
+        defenderLosses: result.defenderCasualties.length,
+      },
+    });
+
+    this.showMessage(message, 'success');
+  }
+
+  /**
+   * Try to attack an enemy banner
+   */
+  private tryAttackBanner(attackerId: CommanderId, banner: Banner): void {
+    try {
+      const attacker = this.gameState.commanders.get(attackerId);
+      if (!attacker) {
+        this.showError('Attacker not found');
+        return;
+      }
+
+      if (attacker.hasActedThisTurn) {
+        this.showError('Commander has already acted this turn');
+        return;
+      }
+
+      // Check range (must be adjacent - distance 1 for melee)
+      const distance = Math.max(
+        Math.abs(attacker.position.x - banner.position.x),
+        Math.abs(attacker.position.y - banner.position.y)
+      );
+
+      if (distance > 1) {
+        this.showError('Must be adjacent to capture banner');
+        return;
+      }
+
+      // Check troop type (archers cannot capture banners - Spec 005)
+      if (attacker.type === 'archer') {
+        this.showError('Archers cannot capture banners in melee');
+        return;
+      }
+
+      // Capture the banner
+      const updatedBanners = new Map(this.gameState.banners);
+      updatedBanners.set(banner.id, { ...banner, status: 'captured' });
+
+      // Mark attacker as having acted
+      const updatedCommanders = new Map(this.gameState.commanders);
+      updatedCommanders.set(attackerId, { ...attacker, hasActedThisTurn: true });
+
+      this.gameState = {
+        ...this.gameState,
+        banners: updatedBanners,
+        commanders: updatedCommanders,
+      };
+
+      this.selectedCommanderId = undefined;
+      this.uiState.selectedCommanderId = undefined;
+
+      // Add to log
+      const player = this.gameState.players.find(p => p.id === attacker.playerId);
+      this.addLogEntry({
+        type: 'capture',
+        message: `${player?.name} captured the enemy banner!`,
+      });
+
+      this.showMessage('Banner captured!', 'success');
+
+      // Check victory
+      this.checkVictoryConditions();
+      this.render();
+    } catch (error) {
+      if (error instanceof GameRuleError) {
+        this.showError(error.message);
+      } else {
+        this.showError('Banner capture failed');
       }
     }
   }
@@ -187,9 +547,20 @@ export class GameController {
    */
   private tryEndTurn(): void {
     try {
+      const currentPlayer = this.gameState.players.find(p => p.id === this.gameState.activePlayerId);
+
       this.gameState = endTurn(this.gameState);
       this.selectedCommanderId = undefined;
-      this.showMessage('Turn ended', 'info');
+      this.uiState.selectedCommanderId = undefined;
+
+      const nextPlayer = this.gameState.players.find(p => p.id === this.gameState.activePlayerId);
+
+      this.addLogEntry({
+        type: 'turn_end',
+        message: `Turn ${this.gameState.turnNumber} - ${nextPlayer?.name}'s turn`,
+      });
+
+      this.showMessage(`Turn ended. ${nextPlayer?.name}'s turn.`, 'info');
       this.render();
     } catch (error) {
       if (error instanceof GameRuleError) {
@@ -201,43 +572,106 @@ export class GameController {
   }
 
   /**
-   * Show error message to player
+   * Check and handle victory conditions
    */
-  private showError(message: string): void {
-    console.error(message);
-    // TODO: Display in UI
+  private checkVictoryConditions(): void {
+    if (this.gameState.gameStatus === 'finished') {
+      const winner = getWinner(this.gameState);
+      if (winner) {
+        this.addLogEntry({
+          type: 'victory',
+          message: `🎉 ${winner.name} wins the game!`,
+        });
+
+        // Notify callbacks
+        this.onVictoryCallbacks.forEach(cb => cb(winner.name));
+
+        this.showMessage(`🎉 ${winner.name} wins!`, 'success');
+      }
+    }
   }
 
   /**
-   * Show message to player
+   * Find enemy commander at position
+   */
+  private findEnemyCommanderAtPosition(position: Position): { id: CommanderId; commander: Commander } | undefined {
+    for (const [id, cmd] of this.gameState.commanders) {
+      if (cmd.position.x === position.x && cmd.position.y === position.y) {
+        const activePlayer = this.gameState.players.find(p => p.id === this.gameState.activePlayerId);
+        if (activePlayer && !activePlayer.commanders.includes(id)) {
+          return { id, commander: cmd };
+        }
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Find enemy banner at position
+   */
+  private findEnemyBannerAtPosition(position: Position): Banner | undefined {
+    for (const banner of this.gameState.banners.values()) {
+      if (banner.position.x === position.x &&
+          banner.position.y === position.y &&
+          banner.status === 'standing') {
+        const activePlayer = this.gameState.players.find(p => p.id === this.gameState.activePlayerId);
+        if (activePlayer && banner.playerId !== activePlayer.id) {
+          return banner;
+        }
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Add entry to combat log
+   */
+  private addLogEntry(entry: Omit<CombatLogEntry, 'id' | 'turn' | 'timestamp'>): void {
+    const fullEntry: CombatLogEntry = {
+      ...entry,
+      id: `log_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      turn: this.gameState.turnNumber,
+      timestamp: new Date(),
+    };
+
+    this.combatLog.push(fullEntry);
+
+    // Keep only last 50 entries
+    if (this.combatLog.length > 50) {
+      this.combatLog.shift();
+    }
+
+    // Notify callbacks
+    this.logCallbacks.forEach(cb => cb(fullEntry));
+  }
+
+  /**
+   * Show error message
+   */
+  private showError(message: string): void {
+    console.error(`❌ ${message}`);
+    // Could integrate with UI toast system
+  }
+
+  /**
+   * Show success/info message
    */
   private showMessage(message: string, type: 'info' | 'success' | 'warning' | 'error'): void {
     console.log(`[${type.toUpperCase()}] ${message}`);
-    // TODO: Display in UI
+    // Could integrate with UI toast system
   }
 
   /**
-   * Render current game state
+   * Render current state
    */
   private render(): void {
     this.uiState.selectedCommanderId = this.selectedCommanderId;
     this.renderer.render(this.gameState, this.uiState);
   }
-
-  /**
-   * Dispose and cleanup
-   */
-  dispose(): void {
-    this.renderer.dispose();
-  }
 }
 
 /**
  * Create a game controller
- *
- * @param config - Game configuration
- * @param renderer - Game renderer
- * @returns GameController instance
  */
 export function createGameController(
   config: GameConfig,

@@ -10,6 +10,8 @@
  * 4. UI layer: Panels, buttons, text
  */
 
+import * as PIXI from 'pixi.js';
+
 /**
  * Render layer interface
  */
@@ -115,7 +117,7 @@ export class UILayer implements RenderLayer {
  * Create layer manager with standard layers (simplified stub)
  */
 export function createLayerManager(
-  root: any,
+  root: PIXI.Container,
   boardConfig: BoardLayerConfig
 ): LayerManager {
   const manager = new LayerManager();

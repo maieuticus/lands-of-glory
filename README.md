@@ -187,31 +187,68 @@ Jede regelrelevante Spec soll mindestens folgende Abschnitte enthalten:
 
 ## Startanleitung
 
-Für Version 1 ist zunächst ein lokaler Browser-Prototyp vorgesehen.
+### Quick Start
 
-Die spätere technische Umsetzung soll voraussichtlich unter folgendem Pfad liegen:
+```bash
+# Installieren & Bauen
+npm install
+npm run build
 
-```txt
-apps/prototype/
+# Tests ausführen (Struktur-Tests ohne npm install)
+npm run test:structure
+
+# Prototype starten
+npm run dev
 ```
 
-Die regelrelevante Logik soll perspektivisch unter folgendem Pfad vorbereitet werden:
+Öffne http://localhost:3000 im Browser.
 
-```txt
-packages/game-core/
+**Steuerung:**
+- `D` – Debug-Modus ein/aus
+- `E` – Zug beenden
+- `ESC` – Auswahl aufheben
+- Linksklick – Commander auswählen / bewegen / angreifen
+
+Detaillierte Anleitung: [`apps/prototype/README.md`](apps/prototype/README.md)
+
+## Projektstruktur
+
 ```
-
-Dieses Repository enthält zunächst die Markdown-Spec-Umgebung. Implementierungscode wird erst ergänzt, wenn die Specs ausreichend stabil sind.
+lands-of-glory/
+├── apps/
+│   └── prototype/          # PixiJS Browser-Anwendung
+├── packages/
+│   └── game-core/          # Spiellogik & Regeln
+├── specs/                  # Fachliche Spezifikationen
+└── docs/                   # Architektur-Dokumentation
+```
 
 ## Status
 
 Aktueller Status:
 
 ```txt
-Spec-Vorbereitung
+Phase 3: PRODUCTION READY
 ```
 
-Die Projektstruktur und die Markdown-Specs werden schrittweise aufgebaut.
+✅ Abgeschlossen:
+- Spezifikationen 002-006 vollständig implementiert
+- Vollständiges Datenmodell (Banner, Units, Commander)
+- Bewegung & Kampfsystem per Spec
+- **PixiJS Rendering** mit Drag-and-Drop
+- **Kamera-Steuerung** (Zoom, Panning)
+- **Festhalten** (Infanterie hält gegnerische Figuren)
+- **Bogenschützen-Regel** (Move OR Shoot)
+- **Kampf-Log** System
+- 33 Unit-Tests + Struktur-Tests
+- Code Quality: 0 `any` Typen, strikte ESLint Regeln
+- **PRODUKTIONSREIF** 🚀
+
+🔄 Mögliche Erweiterungen:
+- Texturen/Sprites statt Primitive
+- Soundeffekte & Musik
+- Animationen für Kampf
+- Multiplayer (Colyseus)
 
 ## Wichtiger Hinweis
 

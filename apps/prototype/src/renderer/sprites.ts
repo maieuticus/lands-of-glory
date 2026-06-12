@@ -4,10 +4,72 @@
  * Sprite factory and helper functions (simplified stub for Phase 2)
  */
 
+// Sprite type definitions
+export interface TileSprite {
+  type: 'tile';
+  size: number;
+  color: number;
+}
+
+export interface CommanderSprite {
+  type: 'commander';
+  size: number;
+  color: number;
+  isKing: boolean;
+  isBanner: boolean;
+}
+
+export interface UnitSprite {
+  type: 'unit';
+  size: number;
+  color: number;
+  troopType: string;
+}
+
+export interface HighlightSprite {
+  type: 'highlight';
+  size: number;
+  highlightType: string;
+}
+
+export interface TextLabel {
+  type: 'text';
+  text: string;
+  fontSize: number;
+  color: number;
+}
+
+export interface ButtonSprite {
+  type: 'button';
+  width: number;
+  height: number;
+  label: string;
+  backgroundColor: number;
+}
+
+export interface HealthBar {
+  type: 'healthbar';
+  width: number;
+  height: number;
+  currentHealth: number;
+  maxHealth: number;
+}
+
+export interface Particle {
+  type: 'particle';
+  position: { x: number; y: number };
+  color: number;
+}
+
+export interface ParticleEffect {
+  sprite: Particle;
+  lifespan: number;
+}
+
 /**
  * Create a simple colored square sprite for a tile
  */
-export function createTileSprite(size: number, color: number): any {
+export function createTileSprite(size: number, color: number): TileSprite {
   return { type: 'tile', size, color };
 }
 
@@ -19,7 +81,7 @@ export function createCommanderSprite(
   color: number,
   isKing: boolean = false,
   isBanner: boolean = false
-): any {
+): CommanderSprite {
   return { type: 'commander', size, color, isKing, isBanner };
 }
 
@@ -30,7 +92,7 @@ export function createUnitSprite(
   size: number,
   color: number,
   troopType: string = 'infantry'
-): any {
+): UnitSprite {
   return { type: 'unit', size, color, troopType };
 }
 
@@ -40,14 +102,14 @@ export function createUnitSprite(
 export function createHighlightSprite(
   size: number,
   highlightType: string = 'selected'
-): any {
+): HighlightSprite {
   return { type: 'highlight', size, highlightType };
 }
 
 /**
  * Create a text label
  */
-export function createTextLabel(text: string, fontSize: number = 16, color: number = 0xffffff): any {
+export function createTextLabel(text: string, fontSize: number = 16, color: number = 0xffffff): TextLabel {
   return { type: 'text', text, fontSize, color };
 }
 
@@ -59,7 +121,7 @@ export function createButton(
   height: number,
   label: string,
   backgroundColor: number = 0x4444ff
-): any {
+): ButtonSprite {
   return { type: 'button', width, height, label, backgroundColor };
 }
 
@@ -71,7 +133,7 @@ export function createHealthBar(
   height: number,
   currentHealth: number,
   maxHealth: number
-): any {
+): HealthBar {
   return { type: 'healthbar', width, height, currentHealth, maxHealth };
 }
 
@@ -82,7 +144,7 @@ export function createParticle(
   position: { x: number; y: number },
   color: number,
   lifespan: number = 500
-): { sprite: any; lifespan: number } {
+): ParticleEffect {
   return {
     sprite: { type: 'particle', position, color },
     lifespan,

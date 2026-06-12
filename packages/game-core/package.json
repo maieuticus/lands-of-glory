@@ -7,6 +7,7 @@
   "scripts": {
     "build": "tsc",
     "test": "jest",
+    "test:structure": "node tests/run-tests.js",
     "test:watch": "jest --watch",
     "lint": "eslint src tests --ext .ts",
     "type-check": "tsc --noEmit"

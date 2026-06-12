@@ -29,11 +29,17 @@ export type PlayerId = string & { readonly __brand: 'PlayerId' };
  */
 export type GameId = string & { readonly __brand: 'GameId' };
 
+/**
+ * Banner identifier - uniquely identifies a player's banner
+ */
+export type BannerId = string & { readonly __brand: 'BannerId' };
+
 // Helper functions to create branded types
 export const createUnitId = (id: string): UnitId => id as UnitId;
 export const createCommanderId = (id: string): CommanderId => id as CommanderId;
 export const createPlayerId = (id: string): PlayerId => id as PlayerId;
 export const createGameId = (id: string): GameId => id as GameId;
+export const createBannerId = (id: string): BannerId => id as BannerId;
 
 // ============================================================================
 // ENUMERATIONS
@@ -84,26 +90,41 @@ export interface Position {
  * Each unit occupies one of 4 slots in a commander's unit array.
  * Units can be null (empty slot) or a Unit object.
  *
- * Units are removed from the board immediately when health ≤ 0.
+ * Units are removed from the game when status changes to 'removed'.
+ * Per Spec 003: Units have bonusPoints 0-3 and status 'active' | 'removed'.
  */
 export interface Unit {
   readonly id: UnitId;
-  readonly type: TroopType;
-  readonly health: number;  // 1-10, unit dies when ≤ 0
-  readonly bonus: number;   // Combat roll bonus (0+)
+  readonly troopType: TroopType;
+  readonly bonusPoints: 0 | 1 | 2 | 3;  // Combat roll bonus (0-3 per Spec)
   readonly commanderId: CommanderId;
-  readonly slotIndex: number;  // 0-3, position in commander's unit array
+  readonly slotIndex: 0 | 1 | 2 | 3;  // Position in commander's unit array
+  readonly status: 'active' | 'removed';
+}
+
+/**
+ * Banner - target object/building on the board
+ *
+ * Represents a player's banner that can be captured.
+ * If status='captured', the player is defeated.
+ */
+export interface Banner {
+  readonly id: BannerId;
+  readonly playerId: PlayerId;
+  readonly position: Position;
+  readonly status: 'standing' | 'captured';
 }
 
 /**
  * Commander (squad leader) on the board
  *
  * Represents a player's primary unit with 0-4 soldiers (units) in slots.
- * Each player has 3-4 commanders: exactly 1 King, 1 Banner, and 1-2 others.
+ * Each player has 6 commanders: exactly 1 King and 5 others.
  *
  * When a commander dies (health ≤ 0), all units in its squad are also removed.
  * If isKing=true and health ≤ 0, that player loses immediately.
- * If isBanner=true and health ≤ 0, that player loses immediately.
+ * 
+ * Per Spec 004: hasActedThisTurn tracks if commander has acted this turn.
  */
 export interface Commander {
   readonly id: CommanderId;
@@ -113,7 +134,7 @@ export interface Commander {
   readonly playerId: PlayerId;
   readonly units: (Unit | null)[];  // Exactly 4 slots, each null or Unit
   readonly isKing: boolean;  // True if this is the player's King
-  readonly isBanner: boolean;  // True if this is the player's Banner/Castle
+  readonly hasActedThisTurn: boolean;  // Per Spec 004: tracks turn action state
 }
 
 // ============================================================================
@@ -209,6 +230,7 @@ export interface GameState {
   readonly players: readonly Player[];
   readonly commanders: ReadonlyMap<CommanderId, Commander>;
   readonly units: ReadonlyMap<UnitId, Unit>;
+  readonly banners: ReadonlyMap<BannerId, Banner>;
   readonly activePlayerId: PlayerId;
   readonly turnNumber: number;
   readonly gameStatus: GameStatus;
@@ -267,31 +289,30 @@ export const MAX_PLAYERS = 4;
 export const COMMANDER_MAX_HEALTH = 20;
 
 /**
- * Base stats for each troop type
+ * Base stats for each troop type per Spec 004
  *
- * - moveRange: How many tiles the unit can move per turn
- * - attackRange: How far the unit can attack (1 = adjacent, 3 = 3 tiles away)
- * - baseAttack: Base damage value before bonuses and dice rolls
- * - maxHealth: Maximum health points for units of this type
+ * Movement ranges:
+ * - infantry: 1 tile per turn
+ * - cavalry: 2 tiles per turn
+ * - archer: 1 tile per turn
+ *
+ * Attack ranges:
+ * - infantry: 1 tile (melee)
+ * - cavalry: 2 tiles (melee with reach)
+ * - archer: 2 tiles (ranged)
  */
 export const TROOP_STATS = {
   infantry: {
-    moveRange: 2,
+    moveRange: 1,
     attackRange: 1,
-    baseAttack: 3,
-    maxHealth: 10,
   },
   cavalry: {
-    moveRange: 3,
-    attackRange: 1,
-    baseAttack: 3,
-    maxHealth: 8,
+    moveRange: 2,
+    attackRange: 2,
   },
   archer: {
-    moveRange: 2,
-    attackRange: 3,
-    baseAttack: 3,
-    maxHealth: 6,
+    moveRange: 1,
+    attackRange: 2,
   },
 } as const;
 

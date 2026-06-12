@@ -12,6 +12,7 @@
     "dev": "npm --workspace=lands-of-glory-prototype run dev",
     "build": "npm --workspace=@lands-of-glory/game-core run build && npm --workspace=lands-of-glory-prototype run build",
     "test": "npm --workspace=@lands-of-glory/game-core run test",
+    "test:structure": "node packages/game-core/tests/run-tests.js",
     "test:watch": "npm --workspace=@lands-of-glory/game-core run test:watch",
     "test:e2e": "npm --workspace=lands-of-glory-prototype run test:e2e",
     "lint": "npm --workspace=@lands-of-glory/game-core run lint && npm --workspace=lands-of-glory-prototype run lint",
