@@ -15,7 +15,7 @@ import * as PIXI from 'pixi.js';
 /**
  * Animation type
  */
-export type AnimationType = 'move' | 'attack' | 'damage' | 'death' | 'spawn' | 'select';
+export type AnimationType = 'move' | 'attack' | 'damage' | 'death' | 'spawn' | 'select' | 'dice';
 
 /**
  * Sprite with scale property

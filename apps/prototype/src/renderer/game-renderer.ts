@@ -17,6 +17,7 @@ import {
   TROOP_STATS,
   BOARD_WIDTH,
   BOARD_HEIGHT,
+  CommanderId,
 } from '@lands-of-glory/game-core';
 import * as PIXI from 'pixi.js';
 import { AnimationManager, AnimationConfig } from './animations';
@@ -26,9 +27,9 @@ import { AnimationManager, AnimationConfig } from './animations';
  * Per Spec 002: PrototypeUiState contains temporary UI state
  */
 export interface UIState {
-  selectedCommanderId?: string;
+  selectedCommanderId?: CommanderId;
   hoveredTile?: Position;
-  draggedCommanderId?: string;
+  draggedCommanderId?: CommanderId;
   currentDragTarget?: Position;
   debugEnabled: boolean;
 }
@@ -37,9 +38,9 @@ export interface UIState {
  * Event callbacks for drag-and-drop
  */
 export interface DragCallbacks {
-  onDragStart?: (commanderId: string) => void;
+  onDragStart?: (commanderId: CommanderId) => void;
   onDragMove?: (position: Position) => void;
-  onDragEnd?: (commanderId: string, target: Position) => void;
+  onDragEnd?: (commanderId: CommanderId, target: Position) => void;
 }
 
 /**
@@ -47,9 +48,11 @@ export interface DragCallbacks {
  */
 interface DragState {
   isDragging: boolean;
-  commanderId?: string;
+  commanderId?: CommanderId;
   startPosition?: Position;
-  dragSprite?: PIXI.Graphics;
+  dragSprite?: PIXI.Container;
+  rangeOverlay?: PIXI.Graphics;
+  validMoveTiles: Set<string>;
 }
 
 /**
@@ -71,16 +74,24 @@ const COLORS = {
   GRASS_DARK: 0x558b2f,
   GRID: 0x33691e,
   
-  // Players
-  PLAYER_1: 0xe53935,  // Red
-  PLAYER_2: 0x1e88e5,  // Blue
+  // Players (Black and White for two-player game)
+  PLAYER_1: 0xffffff,  // White
+  PLAYER_2: 0x1a1a1a,  // Black (dark gray for better visibility)
   PLAYER_3: 0x43a047,  // Green
   PLAYER_4: 0xfdd835,  // Yellow
   
   // Units
-  INFANTRY: 0x5d4037,   // Brown
-  CAVALRY: 0xff8f00,    // Orange/Amber
-  ARCHER: 0x00897b,     // Teal
+  INFANTRY: 0x4caf50,   // Green
+  CAVALRY: 0x2196f3,    // Blue
+  ARCHER: 0xf44336,     // Red
+  
+  // Wood color for commanders
+  WOOD_LIGHT: 0xd4a373, // Light wood
+  WOOD_DARK: 0x8d6e63,  // Dark wood
+  
+  // Commander background - light yellowish brown
+  COMMANDER_BG: 0xf0d5a0, // Light yellowish brown/beige for commander square
+  COMMANDER_BG_DARKER: 0xd4b080, // Darker version for empty unit placeholders
   
   // UI
   SELECTED: 0xffeb3b,
@@ -88,7 +99,8 @@ const COLORS = {
   INVALID_MOVE: 0xf44336,
   BANNER: 0x8e24aa,     // Purple
   KING_CROWN: 0xffd700, // Gold
-  
+  CAN_MOVE: 0xffd700,   // Golden yellow for commanders that can still move
+
   // Debug
   DEBUG_TEXT: 0xffffff,
 };
@@ -109,6 +121,7 @@ export class GameRenderer {
   private bannerLayer: PIXI.Container;
   private commanderLayer: PIXI.Container;
   private uiLayer: PIXI.Container;
+  private dragLayer: PIXI.Container; // Separate layer for drag-and-drop (not cleared on render)
   private debugLayer: PIXI.Container;
   
   // Cache for sprites
@@ -117,7 +130,7 @@ export class GameRenderer {
   private bannerSprites: Map<string, PIXI.Graphics> = new Map();
   
   // Drag state
-  private dragState: DragState = { isDragging: false };
+  private dragState: DragState = { isDragging: false, validMoveTiles: new Set() };
   private callbacks: DragCallbacks = {};
   
   // Drag overlay for valid/invalid indicators
@@ -130,8 +143,12 @@ export class GameRenderer {
     tileSize: number = 64
   ) {
     this.tileSize = tileSize;
+    // Board center: 24x24 board has center at (11.5, 11.5)
+    const boardCenterX = (BOARD_WIDTH - 1) / 2;
+    const boardCenterY = (BOARD_HEIGHT - 1) / 2;
+    
     this.camera = {
-      position: { x: 0, y: 0 },
+      position: { x: boardCenterX, y: boardCenterY },
       zoom: 1,
       viewportWidth: width,
       viewportHeight: height,
@@ -160,12 +177,15 @@ export class GameRenderer {
     this.bannerLayer = new PIXI.Container();
     this.commanderLayer = new PIXI.Container();
     this.uiLayer = new PIXI.Container();
+    this.dragLayer = new PIXI.Container();
+    this.dragLayer.sortableChildren = true; // Erlaubt zIndex für Drag-Sprites
     this.debugLayer = new PIXI.Container();
 
     this.app.stage.addChild(this.boardLayer);
     this.app.stage.addChild(this.bannerLayer);
     this.app.stage.addChild(this.commanderLayer);
     this.app.stage.addChild(this.uiLayer);
+    this.app.stage.addChild(this.dragLayer);
     this.app.stage.addChild(this.debugLayer);
 
     // Initialize animation manager
@@ -189,24 +209,24 @@ export class GameRenderer {
    * Setup drag-and-drop event handling
    */
   private setupDragEvents(): void {
-    // Enable interactivity
+    // Enable interactivity on stage
     this.app.stage.eventMode = 'static';
     this.app.stage.hitArea = this.app.screen;
 
-    // Mouse/Touch events
+    // Mouse/Touch events - use global events to ensure they fire
     this.app.stage.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
-      const pos = this.screenToWorld({ x: e.global.x, y: e.global.y });
-      this.handlePointerDown(pos, e.global);
+      const worldPos = this.screenToWorld({ x: e.global.x, y: e.global.y });
+      this.handlePointerDown(worldPos, { x: e.global.x, y: e.global.y });
     });
 
     this.app.stage.on('pointermove', (e: PIXI.FederatedPointerEvent) => {
-      const pos = this.screenToWorld({ x: e.global.x, y: e.global.y });
-      this.handlePointerMove(pos, e.global);
+      const worldPos = this.screenToWorld({ x: e.global.x, y: e.global.y });
+      this.handlePointerMove(worldPos, { x: e.global.x, y: e.global.y });
     });
 
     this.app.stage.on('pointerup', (e: PIXI.FederatedPointerEvent) => {
-      const pos = this.screenToWorld({ x: e.global.x, y: e.global.y });
-      this.handlePointerUp(pos);
+      const worldPos = this.screenToWorld({ x: e.global.x, y: e.global.y });
+      this.handlePointerUp(worldPos);
     });
 
     this.app.stage.on('pointerupoutside', (e: PIXI.FederatedPointerEvent) => {
@@ -214,9 +234,12 @@ export class GameRenderer {
     });
 
     // Right-click for deselect (context menu)
-    this.app.view.addEventListener('contextmenu', (e: MouseEvent) => {
-      e.preventDefault();
-    });
+    const canvas = this.app.view as HTMLCanvasElement;
+    if (canvas) {
+      canvas.addEventListener('contextmenu', (e: Event) => {
+        e.preventDefault();
+      });
+    }
   }
 
   /**
@@ -232,11 +255,12 @@ export class GameRenderer {
   }
 
   /**
-   * Handle pointer move (update drag)
+   * Handle pointer move (update drag and hover)
    */
   private handlePointerMove(worldPos: Position, screenPos: Position): void {
+    // Update drag sprite position if dragging
     if (this.dragState.isDragging && this.dragState.dragSprite) {
-      // Update drag sprite position to follow mouse
+      // Update drag sprite position to follow mouse exactly
       this.dragState.dragSprite.x = screenPos.x;
       this.dragState.dragSprite.y = screenPos.y;
 
@@ -247,6 +271,22 @@ export class GameRenderer {
       if (this.callbacks.onDragMove) {
         this.callbacks.onDragMove(worldPos);
       }
+    } else {
+      // Not dragging - check for hover over commander to change cursor
+      const hoveredCommander = this.findCommanderAtPosition(worldPos);
+      const canvas = this.app.view as HTMLCanvasElement;
+      if (canvas) {
+        if (hoveredCommander) {
+          canvas.style.cursor = 'grab';
+        } else {
+          canvas.style.cursor = 'default';
+        }
+      }
+    }
+    
+    // Update hovered tile in UI state
+    if (this.currentState) {
+      // Store hovered position for potential highlighting
     }
   }
 
@@ -255,42 +295,210 @@ export class GameRenderer {
    */
   private handlePointerUp(worldPos: Position): void {
     if (this.dragState.isDragging && this.dragState.commanderId) {
-      // End drag
+      // Snap to grid - round to nearest tile
+      const targetPos: Position = {
+        x: Math.round(worldPos.x),
+        y: Math.round(worldPos.y)
+      };
+
+      // End drag with snapped position
       if (this.callbacks.onDragEnd) {
-        this.callbacks.onDragEnd(this.dragState.commanderId, worldPos);
+        this.callbacks.onDragEnd(this.dragState.commanderId, targetPos);
       }
     }
     this.cancelDrag();
+    
+    // Reset cursor after drag ends
+    const canvas = this.app.view as HTMLCanvasElement;
+    if (canvas) {
+      canvas.style.cursor = 'default';
+    }
   }
 
   /**
    * Start dragging a commander
    */
-  private startDrag(commanderId: string, worldPos: Position, screenPos: Position): void {
+  private startDrag(commanderId: CommanderId, worldPos: Position, screenPos: Position): void {
+    if (!this.currentState) return;
+
+    const commander = this.currentState.commanders.get(commanderId);
+    if (!commander) return;
+
     this.dragState = {
       isDragging: true,
       commanderId,
       startPosition: worldPos,
+      validMoveTiles: new Set(),
     };
 
-    // Create drag visual (ghost of the commander)
-    const dragSprite = new PIXI.Graphics();
+    // Create drag visual (ghost of the commander) - zeichne eine echte Figurenkopie
+    const dragContainer = new PIXI.Container();
+    const dragGraphics = new PIXI.Graphics();
+    const shadowGraphics = new PIXI.Graphics();
     const size = this.tileSize * this.camera.zoom;
+
+    // Zeichne die Figur wie beim normalen Rendering, aber etwas kleiner für den Drag
+    const scale = 0.8; // 80% der normalen Größe für bessere Sichtbarkeit
+    const scaledSize = size * scale;
+    const padding = 4 * this.camera.zoom * scale;
+    const commanderSize = scaledSize - (padding * 2);
+    const cornerRadius = 8 * this.camera.zoom * scale;
+
+    // Hintergrundfarbe basierend auf Spieler
+    const playerIndex = this.currentState.players.findIndex(p => p.id === commander.playerId);
+    const playerColor = PLAYER_COLORS[playerIndex] || COLORS.PLAYER_1;
+
+    // Einheitenfarben
+    const troopColors: Record<string, number> = {
+      infantry: COLORS.INFANTRY,
+      cavalry: COLORS.CAVALRY,
+      archer: COLORS.ARCHER,
+    };
+
+    // Zeichne zuerst einen Schatten unter die Figur
+    const shadowOffset = 4 * this.camera.zoom * scale;
+    shadowGraphics.beginFill(0x000000, 0.3);
+    shadowGraphics.drawRoundedRect(
+      -commanderSize/2 + shadowOffset,
+      -commanderSize/2 + shadowOffset,
+      commanderSize,
+      commanderSize,
+      cornerRadius
+    );
+    shadowGraphics.endFill();
+    // Blur-Effekt für den Schatten durch mehrere überlappende Kreise
+    shadowGraphics.beginFill(0x000000, 0.15);
+    shadowGraphics.drawRoundedRect(
+      -commanderSize/2 + shadowOffset - 2,
+      -commanderSize/2 + shadowOffset - 2,
+      commanderSize + 4,
+      commanderSize + 4,
+      cornerRadius + 2
+    );
+    shadowGraphics.endFill();
+    dragContainer.addChild(shadowGraphics);
+
+    // Zeichne den Kommandeur-Hintergrund (hellbraun) - volle Opazität für bessere Sichtbarkeit
+    const borderWidth = 0.5 * this.camera.zoom * scale; // Dünnere Randbreite (1/4)
+    const uniformBorderColor = 0x333333; // Einheitliche Randfarbe
+    dragGraphics.beginFill(COLORS.COMMANDER_BG, 1.0);
+    dragGraphics.lineStyle(borderWidth, uniformBorderColor, 1.0); // Einheitlicher Randstil
+    dragGraphics.drawRoundedRect(-commanderSize/2, -commanderSize/2, commanderSize, commanderSize, cornerRadius);
+    dragGraphics.endFill();
+
+    // Einheitenpositionen (2x2 Grid) - skaliert für Drag-Größe
+    const unitRadius = 6 * this.camera.zoom * scale;
+    const offset = commanderSize * 0.30; // Weiter nach außen verschoben
+    const unitPositions = [
+      { x: -offset, y: -offset },
+      { x: offset, y: -offset },
+      { x: -offset, y: offset },
+      { x: offset, y: offset },
+    ];
+
+    // Zeichne die vier Einheiten
+    for (let i = 0; i < 4; i++) {
+      const unit = commander.units[i];
+      const pos = unitPositions[i];
+
+        if (unit && unit.status === 'active') {
+          const unitColor = troopColors[unit.troopType] || COLORS.INFANTRY;
+          dragGraphics.beginFill(unitColor);
+          dragGraphics.lineStyle(borderWidth, uniformBorderColor, 1.0);
+          dragGraphics.drawCircle(pos.x, pos.y, unitRadius);
+          dragGraphics.endFill();
+
+          // Bonuspunkte - besser angeordnet ohne Überlappung
+          if (unit.bonusPoints > 0) {
+            const bonusRadius = 1.5 * this.camera.zoom * scale; // Noch kleiner
+            const maxSpacing = unitRadius * 0.5; // Maximaler Abstand vom Zentrum
+            
+            if (unit.bonusPoints === 1) {
+              // Ein Punkt: mittig
+              dragGraphics.beginFill(0xffeb3b);
+              dragGraphics.drawCircle(pos.x, pos.y, bonusRadius);
+              dragGraphics.endFill();
+            } else if (unit.bonusPoints === 2) {
+              // Zwei Punkte: horizontal mit ausreichend Abstand
+              const spacing = maxSpacing * 0.5;
+              dragGraphics.beginFill(0xffeb3b);
+              dragGraphics.drawCircle(pos.x - spacing, pos.y, bonusRadius);
+              dragGraphics.drawCircle(pos.x + spacing, pos.y, bonusRadius);
+              dragGraphics.endFill();
+            } else if (unit.bonusPoints >= 3) {
+              // Drei Punkte: Dreieck-Anordnung mit ausreichend Abstand
+              const spacing = maxSpacing * 0.45;
+              dragGraphics.beginFill(0xffeb3b);
+              // Unten links und rechts
+              dragGraphics.drawCircle(pos.x - spacing, pos.y + spacing * 0.4, bonusRadius);
+              dragGraphics.drawCircle(pos.x + spacing, pos.y + spacing * 0.4, bonusRadius);
+              // Oben mittig
+              dragGraphics.drawCircle(pos.x, pos.y - spacing * 0.6, bonusRadius);
+              dragGraphics.endFill();
+            }
+          }
+        } else {
+          // Leerer Slot - ausgefüllt mit der Randfarbe
+          dragGraphics.beginFill(uniformBorderColor, 0.8);
+          dragGraphics.lineStyle(borderWidth, uniformBorderColor, 1.0);
+          dragGraphics.drawCircle(pos.x, pos.y, unitRadius);
+          dragGraphics.endFill();
+        }
+    }
+
+    // Spielerfarbe-Kreis in der Mitte für ALLE Kommandeure
+    const playerColorRadius = commanderSize * 0.12;
+    dragGraphics.beginFill(playerColor, 1);
+    dragGraphics.lineStyle(borderWidth, uniformBorderColor, 1.0);
+    dragGraphics.drawCircle(0, 0, playerColorRadius);
+    dragGraphics.endFill();
+
+    // König-Markierung: Vertikaler Balken von oben bis zur Mitte (zum Spielerfarben-Kreis)
+    if (commander.isKing) {
+      const barWidth = 4 * this.camera.zoom * scale;
+      const barHeight = (commanderSize / 2) - playerColorRadius - (4 * this.camera.zoom * scale * 0.5);
+      
+      // Zeichne den vertikalen Balken von oben nach unten bis zur Mitte
+      if (barHeight > 0) {
+        dragGraphics.beginFill(playerColor, 1);
+        dragGraphics.drawRoundedRect(
+          -barWidth / 2,
+          -(commanderSize / 2) + (4 * this.camera.zoom * scale), // Startet oben
+          barWidth,
+          barHeight,
+          barWidth / 2  // Abgerundete Ecken
+        );
+        dragGraphics.endFill();
+      }
+    }
+
+    dragContainer.addChild(dragGraphics);
+    // WICHTIG: Positioniere den Container am Mauszeiger (Screen-Koordinaten)
+    dragContainer.x = screenPos.x;
+    dragContainer.y = screenPos.y;
+    // Volle Sichtbarkeit
+    dragContainer.alpha = 1.0;
+    // SortableChildren aktivieren und höchste Priorität setzen
+    dragContainer.zIndex = 9999;
+    this.uiLayer.sortableChildren = true;
+    // Normale Skalierung (1.0) damit die Figur original aussieht
+    dragContainer.scale.set(1.0);
+    // Sicherstellen dass der Container sichtbar ist
+    dragContainer.visible = true;
     
-    // Semi-transparent commander representation
-    dragSprite.beginFill(0xffffff, 0.5);
-    dragSprite.drawRoundedRect(-size/2, -size/2, size, size, size * 0.1);
-    dragSprite.endFill();
-    
-    dragSprite.x = screenPos.x;
-    dragSprite.y = screenPos.y;
-    dragSprite.alpha = 0.7;
-    
-    this.uiLayer.addChild(dragSprite);
-    this.dragState.dragSprite = dragSprite;
+    this.dragLayer.addChild(dragContainer);
+    this.dragState.dragSprite = dragContainer;
+
+    // Create overlay showing movement range
+    this.createRangeOverlay(commanderId);
 
     // Create overlay for valid/invalid moves
     this.createDragOverlay();
+    
+    // Ändere Cursor zu "grabbing" während des Ziehens
+    if (this.app.view instanceof HTMLCanvasElement) {
+      this.app.view.style.cursor = 'grabbing';
+    }
 
     // Notify callback
     if (this.callbacks.onDragStart) {
@@ -305,11 +513,94 @@ export class GameRenderer {
     if (this.dragState.dragSprite) {
       this.dragState.dragSprite.destroy();
     }
+    if (this.dragState.rangeOverlay) {
+      this.dragState.rangeOverlay.destroy();
+    }
     if (this.dragOverlay) {
       this.dragOverlay.destroy();
       this.dragOverlay = null;
     }
-    this.dragState = { isDragging: false };
+    this.dragState = { isDragging: false, validMoveTiles: new Set() };
+    
+    // Reset cursor
+    if (this.app.view instanceof HTMLCanvasElement) {
+      this.app.view.style.cursor = 'default';
+    }
+  }
+
+  /**
+   * Create overlay showing movement range
+   */
+  private createRangeOverlay(commanderId: CommanderId): void {
+    if (!this.currentState) return;
+
+    const commander = this.currentState.commanders.get(commanderId);
+    if (!commander) return;
+
+    const range = TROOP_STATS[commander.type].moveRange;
+    const rangeOverlay = new PIXI.Graphics();
+    const validTiles = new Set<string>();
+    const borderWidth = 0.5 * this.camera.zoom; // Dünnere Randbreite (1/4)
+
+    // Draw the maximum movement range area
+    for (let dx = -range; dx <= range; dx++) {
+      for (let dy = -range; dy <= range; dy++) {
+        // Use Chebyshev distance for movement range
+        if (Math.max(Math.abs(dx), Math.abs(dy)) > range) continue;
+
+        const targetX = commander.position.x + dx;
+        const targetY = commander.position.y + dy;
+
+        // Skip if out of bounds
+        if (targetX < 0 || targetX >= BOARD_WIDTH || targetY < 0 || targetY >= BOARD_HEIGHT) continue;
+
+        // Skip current position
+        if (dx === 0 && dy === 0) continue;
+
+        // Check if position is occupied
+        let isOccupied = false;
+        for (const cmd of this.currentState.commanders.values()) {
+          if (cmd.position.x === targetX && cmd.position.y === targetY) {
+            isOccupied = true;
+            break;
+          }
+        }
+
+        // Check if banner is there
+        for (const banner of this.currentState.banners.values()) {
+          if (banner.position.x === targetX && banner.position.y === targetY && banner.status === 'standing') {
+            isOccupied = true;
+            break;
+          }
+        }
+
+        const screenPos = this.worldToScreen({ x: targetX, y: targetY });
+        const size = this.tileSize * this.camera.zoom;
+
+        if (!isOccupied) {
+          // Valid move - add to valid tiles
+          validTiles.add(`${targetX},${targetY}`);
+
+          // Draw semi-transparent green highlight
+          rangeOverlay.beginFill(COLORS.VALID_MOVE, 0.4);
+          rangeOverlay.drawRect(screenPos.x + 1, screenPos.y + 1, size - 2, size - 2);
+          rangeOverlay.endFill();
+
+          // Draw border with same thickness as other borders
+          rangeOverlay.lineStyle(borderWidth, COLORS.VALID_MOVE, 0.9);
+          rangeOverlay.drawRect(screenPos.x + 3, screenPos.y + 3, size - 6, size - 6);
+        } else {
+          // Occupied - draw red highlight
+          rangeOverlay.beginFill(COLORS.INVALID_MOVE, 0.2);
+          rangeOverlay.drawRect(screenPos.x + 1, screenPos.y + 1, size - 2, size - 2);
+          rangeOverlay.endFill();
+        }
+      }
+    }
+
+    this.dragLayer.addChildAt(rangeOverlay, 0); // Add at bottom so it appears behind drag sprite
+    this.dragState.rangeOverlay = rangeOverlay;
+    this.dragState.validMoveTiles = validTiles;
   }
 
   /**
@@ -317,23 +608,45 @@ export class GameRenderer {
    */
   private createDragOverlay(): void {
     this.dragOverlay = new PIXI.Graphics();
-    this.uiLayer.addChild(this.dragOverlay);
+    this.dragLayer.addChild(this.dragOverlay);
   }
 
   /**
    * Update drag overlay to show current hover state
    */
   private updateDragOverlay(hoverPos: Position): void {
-    if (!this.dragOverlay || !this.dragState.startPosition) return;
+    if (!this.dragOverlay || !this.dragState.startPosition || !this.currentState) return;
 
     this.dragOverlay.clear();
 
     const screenPos = this.worldToScreen(hoverPos);
     const size = this.tileSize * this.camera.zoom;
+    const borderWidth = 0.5 * this.camera.zoom; // Dünnere Randbreite (1/4)
 
-    // Draw hover indicator
-    this.dragOverlay.lineStyle(3, 0xffffff, 0.8);
-    this.dragOverlay.drawRect(screenPos.x + 2, screenPos.y + 2, size - 4, size - 4);
+    // Check if this is a valid move position
+    const isValidMove = this.dragState.validMoveTiles.has(`${hoverPos.x},${hoverPos.y}`);
+
+    // Draw hover indicator based on validity
+    if (isValidMove) {
+      // Valid target - bright green
+      this.dragOverlay.lineStyle(borderWidth, COLORS.VALID_MOVE, 1);
+      this.dragOverlay.drawRect(screenPos.x + 2, screenPos.y + 2, size - 4, size - 4);
+
+      // Add glow effect
+      this.dragOverlay.lineStyle(borderWidth * 0.5, 0xffffff, 0.5);
+      this.dragOverlay.drawRect(screenPos.x + 6, screenPos.y + 6, size - 12, size - 12);
+    } else {
+      // Invalid target - red
+      this.dragOverlay.lineStyle(borderWidth, COLORS.INVALID_MOVE, 0.8);
+      this.dragOverlay.drawRect(screenPos.x + 2, screenPos.y + 2, size - 4, size - 4);
+
+      // Draw X mark for invalid
+      this.dragOverlay.lineStyle(borderWidth, COLORS.INVALID_MOVE, 0.8);
+      this.dragOverlay.moveTo(screenPos.x + 8, screenPos.y + 8);
+      this.dragOverlay.lineTo(screenPos.x + size - 8, screenPos.y + size - 8);
+      this.dragOverlay.moveTo(screenPos.x + size - 8, screenPos.y + 8);
+      this.dragOverlay.lineTo(screenPos.x + 8, screenPos.y + size - 8);
+    }
   }
 
   // Store current state for interaction
@@ -345,7 +658,7 @@ export class GameRenderer {
   /**
    * Find commander at a world position
    */
-  private findCommanderAtPosition(pos: Position): string | undefined {
+  private findCommanderAtPosition(pos: Position): CommanderId | undefined {
     if (!this.currentState) return undefined;
     
     for (const [id, cmd] of this.currentState.commanders) {
@@ -382,11 +695,12 @@ export class GameRenderer {
   private renderValidMoves(state: GameState, uiState: UIState): void {
     if (!uiState.selectedCommanderId) return;
 
-    const commander = state.commanders.get(uiState.selectedCommanderId as CommanderId);
+    const commander = state.commanders.get(uiState.selectedCommanderId);
     if (!commander || commander.hasActedThisTurn) return;
 
     const graphics = new PIXI.Graphics();
     const range = TROOP_STATS[commander.type].moveRange;
+    const borderWidth = 0.5 * this.camera.zoom; // Dünnere Randbreite (1/4)
 
     // Draw movement range indicator
     for (let dx = -range; dx <= range; dx++) {
@@ -422,9 +736,13 @@ export class GameRenderer {
 
         if (!isOccupied) {
           // Valid move - green highlight
-          graphics.beginFill(COLORS.VALID_MOVE, 0.3);
-          graphics.drawRect(screenPos.x + 2, screenPos.y + 2, size - 4, size - 4);
+          graphics.beginFill(COLORS.VALID_MOVE, 0.4);
+          graphics.drawRect(screenPos.x + 1, screenPos.y + 1, size - 2, size - 2);
           graphics.endFill();
+          
+          // Einheitlicher Rand
+          graphics.lineStyle(borderWidth, COLORS.VALID_MOVE, 0.9);
+          graphics.drawRect(screenPos.x + 3, screenPos.y + 3, size - 6, size - 6);
         }
       }
     }
@@ -439,6 +757,7 @@ export class GameRenderer {
     const graphics = new PIXI.Graphics();
     const activePlayer = state.players.find(p => p.id === state.activePlayerId);
     if (!activePlayer) return;
+    const borderWidth = 0.5 * this.camera.zoom; // Dünnere Randbreite (1/4)
 
     for (const commanderId of activePlayer.commanders) {
       const commander = state.commanders.get(commanderId);
@@ -451,12 +770,12 @@ export class GameRenderer {
         const size = this.tileSize * this.camera.zoom;
 
         // Draw red chain link indicator
-        graphics.lineStyle(3, COLORS.INVALID_MOVE, 0.8);
+        graphics.lineStyle(borderWidth, COLORS.INVALID_MOVE, 0.8);
         graphics.drawCircle(screenPos.x + size / 2, screenPos.y + size / 2, size * 0.4);
         
         // Draw chain links
         const linkSize = size * 0.15;
-        graphics.lineStyle(2, COLORS.INVALID_MOVE, 1);
+        graphics.lineStyle(borderWidth, COLORS.INVALID_MOVE, 1);
         graphics.drawCircle(screenPos.x + size * 0.35, screenPos.y + size / 2, linkSize);
         graphics.drawCircle(screenPos.x + size * 0.65, screenPos.y + size / 2, linkSize);
       }
@@ -495,7 +814,7 @@ export class GameRenderer {
   }
 
   /**
-   * Clear all layers
+   * Clear all layers (except dragLayer which persists during drag operations)
    */
   private clearLayers(): void {
     this.boardLayer.removeChildren();
@@ -503,6 +822,7 @@ export class GameRenderer {
     this.commanderLayer.removeChildren();
     this.uiLayer.removeChildren();
     this.debugLayer.removeChildren();
+    // Note: dragLayer is NOT cleared here - it's managed separately
   }
 
   /**
@@ -516,9 +836,8 @@ export class GameRenderer {
         const screenPos = this.worldToScreen({ x, y });
         const size = this.tileSize * this.camera.zoom;
         
-        // Draw tile background
-        const isEven = (x + y) % 2 === 0;
-        graphics.beginFill(isEven ? COLORS.GRASS : COLORS.GRASS_DARK);
+        // Draw tile background (all tiles same green - use lighter color)
+        graphics.beginFill(COLORS.GRASS);
         graphics.drawRect(screenPos.x, screenPos.y, size, size);
         graphics.endFill();
         
@@ -580,101 +899,175 @@ export class GameRenderer {
     for (const commander of state.commanders.values()) {
       const screenPos = this.worldToScreen(commander.position);
       const size = this.tileSize * this.camera.zoom;
-      
+
       const container = new PIXI.Container();
-      
+
+      const graphics = new PIXI.Graphics();
+
+      // Definiere den Kommandeur als abgerundetes Quadrat
+      // Mit etwas Abstand zum Tile-Rand für den Rahmen
+      const padding = 4 * this.camera.zoom;
+      const commanderSize = size - (padding * 2);
+      const cornerRadius = 8 * this.camera.zoom;
+
+      // 1. Zeichne das Kommandeur-Quadrat mit abgerundeten Ecken
+      // Hellbrauner Hintergrund für den Kommandeur
       const playerIndex = state.players.findIndex(p => p.id === commander.playerId);
       const playerColor = PLAYER_COLORS[playerIndex] || COLORS.PLAYER_1;
-      
-      // Draw commander base (square for commander)
-      const graphics = new PIXI.Graphics();
-      
-      // Selection highlight
-      if (uiState.selectedCommanderId === commander.id) {
-        graphics.lineStyle(3, COLORS.SELECTED, 1);
-        graphics.beginFill(COLORS.SELECTED, 0.3);
-        graphics.drawRect(
-          screenPos.x + size * 0.05,
-          screenPos.y + size * 0.05,
-          size * 0.9,
-          size * 0.9
-        );
-        graphics.endFill();
-      }
-      
-      // Commander body (square with rounded corners)
-      graphics.beginFill(playerColor);
+
+      // Äußerer Rahmen des Kommandeurs - alle Ränder gleich dick und gleiche Farbe
+      const borderWidth = 1 * this.camera.zoom; // Dünnere Randbreite
+      const uniformBorderColor = 0x333333; // Einheitliche Randfarbe für alle
+      graphics.beginFill(COLORS.COMMANDER_BG, 1.0);
+      graphics.lineStyle(borderWidth, uniformBorderColor, 1.0); // Einheitlicher Randstil
       graphics.drawRoundedRect(
-        screenPos.x + size * 0.15,
-        screenPos.y + size * 0.15,
-        size * 0.7,
-        size * 0.7,
-        size * 0.1
+        screenPos.x + padding,
+        screenPos.y + padding,
+        commanderSize,
+        commanderSize,
+        cornerRadius
       );
       graphics.endFill();
-      
-      // Type indicator (inner color)
-      let typeColor = COLORS.INFANTRY;
-      if (commander.type === 'cavalry') typeColor = COLORS.CAVALRY;
-      if (commander.type === 'archer') typeColor = COLORS.ARCHER;
-      
-      graphics.beginFill(typeColor);
-      graphics.drawRoundedRect(
-        screenPos.x + size * 0.22,
-        screenPos.y + size * 0.22,
-        size * 0.56,
-        size * 0.56,
-        size * 0.08
-      );
-      graphics.endFill();
-      
-      // King crown indicator
-      if (commander.isKing) {
-        graphics.beginFill(COLORS.KING_CROWN);
-        // Crown shape
-        const crownY = screenPos.y + size * 0.18;
-        graphics.moveTo(screenPos.x + size * 0.3, crownY + size * 0.08);
-        graphics.lineTo(screenPos.x + size * 0.38, crownY);
-        graphics.lineTo(screenPos.x + size * 0.5, crownY + size * 0.06);
-        graphics.lineTo(screenPos.x + size * 0.62, crownY);
-        graphics.lineTo(screenPos.x + size * 0.7, crownY + size * 0.08);
-        graphics.lineTo(screenPos.x + size * 0.7, crownY + size * 0.12);
-        graphics.lineTo(screenPos.x + size * 0.3, crownY + size * 0.12);
-        graphics.closePath();
-        graphics.endFill();
-      }
-      
-      // Unit count dots (show active units)
-      const activeUnits = commander.units.filter(u => u?.status === 'active').length;
-      const dotSize = size * 0.06;
-      const dotSpacing = size * 0.12;
-      const startX = screenPos.x + size * 0.3;
-      const startY = screenPos.y + size * 0.65;
-      
+
+      // 2. Zeichne die vier Units innerhalb des Kommandeur-Quadrats
+      // Positionen relativ zum Kommandeur-Zentrum (2x2 Grid)
+      // Einheiten sind jetzt größer (7 statt 6) und wachsen nach innen
+      const unitRadius = 7 * this.camera.zoom;
+      const offset = commanderSize * 0.28 - 1 * this.camera.zoom; // Nach innen verschoben damit Außenabstand gleich bleibt
+      const centerX = screenPos.x + size / 2;
+      const centerY = screenPos.y + size / 2;
+
+      const unitPositions = [
+        { x: centerX - offset, y: centerY - offset }, // Oben links
+        { x: centerX + offset, y: centerY - offset }, // Oben rechts
+        { x: centerX - offset, y: centerY + offset }, // Unten links
+        { x: centerX + offset, y: centerY + offset }, // Unten rechts
+      ];
+
+      // Farben für verschiedene Truppentypen
+      const troopColors: Record<string, number> = {
+        infantry: COLORS.INFANTRY,
+        cavalry: COLORS.CAVALRY,
+        archer: COLORS.ARCHER,
+      };
+
       for (let i = 0; i < 4; i++) {
-        const dotX = startX + (i % 2) * dotSpacing;
-        const dotY = startY + Math.floor(i / 2) * dotSpacing;
-        
-        graphics.beginFill(i < activeUnits ? 0xffffff : 0x666666);
-        graphics.drawCircle(dotX, dotY, dotSize / 2);
-        graphics.endFill();
+        const unit = commander.units[i];
+        const pos = unitPositions[i];
+
+        if (unit && unit.status === 'active') {
+          const unitColor = troopColors[unit.troopType] || COLORS.INFANTRY;
+
+          // Zeichne Unit als Kreis - gleiche Randfarbe wie Kommandeur
+          graphics.beginFill(unitColor);
+          graphics.lineStyle(borderWidth, uniformBorderColor, 1.0);
+          graphics.drawCircle(pos.x, pos.y, unitRadius);
+          graphics.endFill();
+
+          // Zeichne Bonuspunkte als gelbe Punkte (0-3) - am Rand der Einheit positioniert
+          if (unit.bonusPoints > 0) {
+            const bonusRadius = 1.5 * this.camera.zoom;
+            // Abstand vom Zentrum - Punkte sollen weiter auseinander liegen
+            // Verwende einen größeren Abstand, damit sich die Punkte nicht überschneiden
+            const baseSpacing = unitRadius * 0.55; // Größerer Basisabstand für mehr Abstand zwischen Punkten
+            
+            if (unit.bonusPoints === 1) {
+              // Ein Punkt: mittig
+              graphics.beginFill(0xffeb3b); // Gelb
+              graphics.drawCircle(pos.x, pos.y, bonusRadius);
+              graphics.endFill();
+            } else if (unit.bonusPoints === 2) {
+              // Zwei Punkte: horizontal mit ausreichend Abstand
+              const spacing = baseSpacing * 0.7;
+              graphics.beginFill(0xffeb3b);
+              graphics.drawCircle(pos.x - spacing, pos.y, bonusRadius);
+              graphics.drawCircle(pos.x + spacing, pos.y, bonusRadius);
+              graphics.endFill();
+            } else if (unit.bonusPoints >= 3) {
+              // Drei Punkte: Dreieck-Anordnung mit ausreichend Abstand
+              const spacing = baseSpacing * 0.65;
+              graphics.beginFill(0xffeb3b);
+              // Unten links und rechts
+              graphics.drawCircle(pos.x - spacing, pos.y + spacing * 0.4, bonusRadius);
+              graphics.drawCircle(pos.x + spacing, pos.y + spacing * 0.4, bonusRadius);
+              // Oben mittig
+              graphics.drawCircle(pos.x, pos.y - spacing * 0.6, bonusRadius);
+              graphics.endFill();
+            }
+          }
+        } else {
+          // Leerer Slot - ausgefüllt mit der Randfarbe
+          graphics.beginFill(uniformBorderColor, 0.8);
+          graphics.lineStyle(borderWidth, uniformBorderColor, 1.0);
+          graphics.drawCircle(pos.x, pos.y, unitRadius);
+          graphics.endFill();
+        }
       }
-      
-      // Has acted indicator
-      if (commander.hasActedThisTurn) {
-        graphics.lineStyle(2, 0x999999, 0.8);
+
+      // 3. Spielerfarbe-Kreis in der Mitte für ALLE Kommandeure
+      const playerColorRadius = commanderSize * 0.12;
+      graphics.beginFill(playerColor, 1);
+      graphics.lineStyle(borderWidth, uniformBorderColor, 1.0);
+      graphics.drawCircle(centerX, centerY, playerColorRadius);
+      graphics.endFill();
+
+      // 4. König-Markierung: Vertikaler Balken von oben bis zur Mitte (zum Spielerfarben-Kreis)
+      if (commander.isKing) {
+        // Der Balken geht von oben bis zur Mitte (zum Spielerfarben-Kreis)
+        const barWidth = 4 * this.camera.zoom;
+        const barHeight = (commanderSize / 2) - playerColorRadius - (padding * 0.5);
+        
+        // Zeichne den vertikalen Balken von oben nach unten bis zur Mitte
+        if (barHeight > 0) {
+          graphics.beginFill(playerColor, 1);
+          graphics.drawRoundedRect(
+            centerX - barWidth / 2,
+            centerY - (commanderSize / 2) + padding, // Startet oben
+            barWidth,
+            barHeight,
+            barWidth / 2  // Abgerundete Ecken
+          );
+          graphics.endFill();
+        }
+      }
+
+      // Selection highlight (wenn der Commander selektiert ist) - gleiche Randbreite
+      if (uiState.selectedCommanderId === commander.id) {
+        graphics.lineStyle(borderWidth, COLORS.SELECTED, 1);
         graphics.drawRoundedRect(
-          screenPos.x + size * 0.15,
-          screenPos.y + size * 0.15,
-          size * 0.7,
-          size * 0.7,
-          size * 0.1
+          screenPos.x + padding - 2,
+          screenPos.y + padding - 2,
+          commanderSize + 4,
+          commanderSize + 4,
+          cornerRadius + 2
         );
       }
-      
+
+      // Highlight commanders that can still move (belong to active player and haven't acted)
+      const activePlayer = state.players.find(p => p.id === state.activePlayerId);
+      if (activePlayer && 
+          activePlayer.commanders.includes(commander.id) && 
+          !commander.hasActedThisTurn &&
+          uiState.selectedCommanderId !== commander.id) {
+        // Draw a subtle golden border to indicate this commander can still move
+        graphics.lineStyle(borderWidth * 1.5, COLORS.CAN_MOVE, 0.8);
+        graphics.drawRoundedRect(
+          screenPos.x + padding - 3,
+          screenPos.y + padding - 3,
+          commanderSize + 6,
+          commanderSize + 6,
+          cornerRadius + 3
+        );
+      }
+
+      // Wenn dieser Commander gerade gedraggt wird, mache ihn halbtransparent
+      if (this.dragState.isDragging && this.dragState.commanderId === commander.id) {
+        container.alpha = 0.3;
+      }
+
       container.addChild(graphics);
       this.commanderLayer.addChild(container);
-      
+
       // Store for interaction
       this.commanderSprites.set(commander.id, container);
     }
@@ -800,6 +1193,13 @@ export class GameRenderer {
    */
   getAnimationManager(): AnimationManager {
     return this.animationManager;
+  }
+
+  /**
+   * Get PixiJS application instance
+   */
+  getApp(): PIXI.Application {
+    return this.app;
   }
 
   /**

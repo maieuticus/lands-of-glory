@@ -78,10 +78,10 @@ export function createGame(config: GameConfig): GameState {
     const playerId = createPlayerId(`player-${pIdx}`);
 
     // Create 6 commanders per player: 1 King, 5 regular
-    // Per Spec 003: 3 Infantry (incl. King), 1 Cavalry, 2 Archers
+    // Per Spec 003: 3 Infantry, 1 Cavalry, 2 Archers, King has Cavalry units (blue)
     const commanders: CommanderId[] = [];
     const commanderTypes: TroopType[] = [
-      'infantry',  // King (index 0)
+      'cavalry',   // King (index 0) - has cavalry units (blue)
       'infantry',  // Regular infantry
       'infantry',  // Regular infantry
       'cavalry',   // Cavalry
@@ -99,10 +99,24 @@ export function createGame(config: GameConfig): GameState {
       // Create units for this commander per Spec 003
       // King: 0, 0, 0, 0 (all 4 units have bonusPoints 0)
       // Normal: 0, 0, 1, 3 (two with 0, one with 1, one with 3)
+      // First regular infantry (cIdx === 1) has only 2 units
       const units: (Unit | null)[] = [];
-      const bonusValues: (0 | 1 | 2 | 3)[] = isKing ? [0, 0, 0, 0] : [0, 0, 1, 3];
+      const isTwoUnitInfantry = !isKing && troopType === 'infantry' && cIdx === 1;
+      // First archer (cIdx === 4) gets bonusValues [0, 2, 1, 3] - one 0 changed to 2
+      const isFirstArcher = !isKing && troopType === 'archer' && cIdx === 4;
+      const bonusValues: (0 | 1 | 2 | 3)[] = isKing
+        ? [0, 0, 0, 0]
+        : isFirstArcher
+          ? [0, 2, 1, 3]
+          : [0, 0, 1, 3];
 
       for (let slotIdx = 0; slotIdx < COMMANDER_SLOTS; slotIdx++) {
+        // First regular infantry has only 2 units (slots 0 and 1)
+        if (isTwoUnitInfantry && slotIdx >= 2) {
+          units.push(null);
+          continue;
+        }
+
         const unitId = createUnitId(`unit-${pIdx}-${cIdx}-${slotIdx}`);
         const unit: Unit = {
           id: unitId,
@@ -182,21 +196,21 @@ export function createGame(config: GameConfig): GameState {
 function getInitialCommanderPosition(playerIndex: number, commanderIndex: number): Position {
   const positions: Record<number, Position[]> = {
     0: [
-      { x: 9, y: 8 },   // King position (will be assigned to first commander)
-      { x: 10, y: 8 },
+      { x: 10, y: 8 },   // King position (will be assigned to first commander)
       { x: 11, y: 8 },
-      { x: 13, y: 8 },
-      { x: 14, y: 8 },
-      { x: 15, y: 8 },
-    ],  // Player 1
+      { x: 12, y: 8 },
+      { x: 10, y: 9 },
+      { x: 11, y: 9 },
+      { x: 12, y: 9 },
+    ],  // Player 1 - 2 rows, 3 columns (compact formation)
     1: [
-      { x: 9, y: 15 },  // King position
+      { x: 10, y: 14 },  // King position
+      { x: 11, y: 14 },
+      { x: 12, y: 14 },
       { x: 10, y: 15 },
       { x: 11, y: 15 },
-      { x: 13, y: 15 },
-      { x: 14, y: 15 },
-      { x: 15, y: 15 },
-    ],  // Player 2
+      { x: 12, y: 15 },
+    ],  // Player 2 - 2 rows, 3 columns (compact formation)
   };
 
   const playerPositions = positions[playerIndex] ?? positions[0];
@@ -215,11 +229,11 @@ function getInitialCommanderPosition(playerIndex: number, commanderIndex: number
  */
 function getInitialBannerPosition(playerIndex: number): Position {
   const positions: Record<number, Position> = {
-    0: { x: 12, y: 8 },   // Player 1 - between commanders at columns 11 and 13
-    1: { x: 12, y: 15 },  // Player 2
+    0: { x: 13, y: 8 },   // Player 1 - behind the commander formation
+    1: { x: 13, y: 14 },  // Player 2 - behind the commander formation
   };
 
-  return positions[playerIndex] ?? { x: 12, y: 8 };
+  return positions[playerIndex] ?? { x: 13, y: 8 };
 }
 
 /**

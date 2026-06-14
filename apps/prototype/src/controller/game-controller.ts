@@ -26,6 +26,7 @@ import {
   CombatResult,
 } from '@lands-of-glory/game-core';
 import { GameRenderer, UIState, DragCallbacks } from '../renderer/game-renderer';
+import { CombatDiceAnimation } from '../renderer/combat-animation';
 
 /**
  * Combat log entry
@@ -56,10 +57,12 @@ export class GameController {
   private combatLog: CombatLogEntry[] = [];
   private logCallbacks: ((entry: CombatLogEntry) => void)[] = [];
   private onVictoryCallbacks: ((winner: string) => void)[] = [];
+  private combatAnimation: CombatDiceAnimation;
 
   constructor(gameState: GameState, renderer: GameRenderer) {
     this.gameState = gameState;
     this.renderer = renderer;
+    this.combatAnimation = new CombatDiceAnimation(renderer.getApp());
     this.setupDragCallbacks();
   }
 
@@ -127,13 +130,13 @@ export class GameController {
    */
   private setupDragCallbacks(): void {
     const callbacks: DragCallbacks = {
-      onDragStart: (commanderId: string) => {
-        const commander = this.gameState.commanders.get(commanderId as CommanderId);
+      onDragStart: (commanderId: CommanderId) => {
+        const commander = this.gameState.commanders.get(commanderId);
         if (!commander) return;
 
         // Check if it's the current player's commander
         const activePlayer = this.gameState.players.find(p => p.id === this.gameState.activePlayerId);
-        if (!activePlayer?.commanders.includes(commanderId as CommanderId)) {
+        if (!activePlayer?.commanders.includes(commanderId)) {
           this.showError('Not your commander!');
           return;
         }
@@ -144,7 +147,7 @@ export class GameController {
           return;
         }
 
-        this.selectedCommanderId = commanderId as CommanderId;
+        this.selectedCommanderId = commanderId;
         this.uiState.selectedCommanderId = commanderId;
         this.uiState.draggedCommanderId = commanderId;
         this.render();
@@ -153,28 +156,34 @@ export class GameController {
         this.uiState.currentDragTarget = position;
         this.render();
       },
-      onDragEnd: (commanderId: string, target: Position) => {
+      onDragEnd: (commanderId: CommanderId, target: Position) => {
         this.uiState.draggedCommanderId = undefined;
         this.uiState.currentDragTarget = undefined;
 
         if (!this.selectedCommanderId) return;
 
+        // Round target position to ensure it's a valid grid coordinate
+        const snappedTarget: Position = {
+          x: Math.round(target.x),
+          y: Math.round(target.y)
+        };
+
         // Check if there's an enemy at target position (potential attack)
-        const enemyCommander = this.findEnemyCommanderAtPosition(target);
+        const enemyCommander = this.findEnemyCommanderAtPosition(snappedTarget);
         if (enemyCommander) {
           this.tryAttackCommander(this.selectedCommanderId, enemyCommander.id);
           return;
         }
 
         // Check if there's an enemy banner at target position
-        const enemyBanner = this.findEnemyBannerAtPosition(target);
+        const enemyBanner = this.findEnemyBannerAtPosition(snappedTarget);
         if (enemyBanner) {
           this.tryAttackBanner(this.selectedCommanderId, enemyBanner);
           return;
         }
 
         // Try to move selected commander
-        this.tryMoveCommander(this.selectedCommanderId, target);
+        this.tryMoveCommander(this.selectedCommanderId, snappedTarget);
       },
     };
 
@@ -382,14 +391,7 @@ export class GameController {
         return;
       }
 
-      // Check if attacker is held - can only attack holder
-      if (this.isCommanderHeld(attackerId)) {
-        const holder = this.getHoldingCommander(attackerId);
-        if (!holder || holder.id !== defenderId) {
-          this.showError('Held commander can only attack the infantry holding them!');
-          return;
-        }
-      }
+      // Note: Held commanders can attack any target, not just the holder
 
       // Create RNG for combat
       const rng = createRNG(Date.now());
@@ -397,27 +399,31 @@ export class GameController {
       // Resolve combat
       const combatResult = resolveCombat(this.gameState, attackerId, defenderId, rng);
 
-      // Apply combat result
-      this.gameState = applyCombatResult(this.gameState, combatResult);
+      // Helper to translate troop type
+      const translateTroopType = (type: string): string => {
+        switch (type) {
+          case 'infantry': return 'Infanterie';
+          case 'cavalry': return 'Kavallerie';
+          case 'archer': return 'Bogenschütze';
+          default: return type;
+        }
+      };
 
-      // Mark attacker as having acted
-      const updatedAttacker = this.gameState.commanders.get(attackerId);
-      if (updatedAttacker) {
-        const updatedCommanders = new Map(this.gameState.commanders);
-        updatedCommanders.set(attackerId, { ...updatedAttacker, hasActedThisTurn: true });
-        this.gameState = { ...this.gameState, commanders: updatedCommanders };
-      }
+      // Get names and colors for animation
+      const attackerName = `${attacker.isKing ? 'König ' : ''}${translateTroopType(attacker.type)}`;
+      const defenderName = `${defender.isKing ? 'König ' : ''}${translateTroopType(defender.type)}`;
+      
+      // Get player colors from array
+      const attackerPlayer = this.gameState.players.find(p => p.id === attacker.playerId);
+      const defenderPlayer = this.gameState.players.find(p => p.id === defender.playerId);
+      const attackerColor = attackerPlayer?.color ? parseInt(attackerPlayer.color.replace('#', '0x')) : 0xff6b6b;
+      const defenderColor = defenderPlayer?.color ? parseInt(defenderPlayer.color.replace('#', '0x')) : 0x4dabf7;
 
-      // Build result message and log
-      this.logCombatResult(combatResult, attacker, defender);
-
-      this.selectedCommanderId = undefined;
-      this.uiState.selectedCommanderId = undefined;
-
-      // Check victory conditions
-      this.checkVictoryConditions();
-
-      this.render();
+      // Show dice animation
+      this.combatAnimation.play(combatResult, attackerName, defenderName, attackerColor, defenderColor, () => {
+        // Apply combat result after animation
+        this.applyCombatAfterAnimation(combatResult, attackerId, attacker, defender);
+      });
     } catch (error) {
       if (error instanceof GameRuleError) {
         this.showError(error.message);
@@ -425,6 +431,38 @@ export class GameController {
         this.showError('Combat failed');
       }
     }
+  }
+
+  /**
+   * Apply combat result after animation completes
+   */
+  private applyCombatAfterAnimation(
+    combatResult: CombatResult,
+    attackerId: CommanderId,
+    attacker: Commander,
+    defender: Commander
+  ): void {
+    // Apply combat result
+    this.gameState = applyCombatResult(this.gameState, combatResult);
+
+    // Mark attacker as having acted
+    const updatedAttacker = this.gameState.commanders.get(attackerId);
+    if (updatedAttacker) {
+      const updatedCommanders = new Map(this.gameState.commanders);
+      updatedCommanders.set(attackerId, { ...updatedAttacker, hasActedThisTurn: true });
+      this.gameState = { ...this.gameState, commanders: updatedCommanders };
+    }
+
+    // Build result message and log
+    this.logCombatResult(combatResult, attacker, defender);
+
+    this.selectedCommanderId = undefined;
+    this.uiState.selectedCommanderId = undefined;
+
+    // Check victory conditions
+    this.checkVictoryConditions();
+
+    this.render();
   }
 
   /**

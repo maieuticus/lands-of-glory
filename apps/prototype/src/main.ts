@@ -5,7 +5,7 @@
  * Initializes the game and starts the rendering loop
  */
 
-import { createGame, startGame, GameConfig } from '@lands-of-glory/game-core';
+import { createGame, startGame, GameConfig, TROOP_STATS } from '@lands-of-glory/game-core';
 import { createGameRenderer } from './renderer/game-renderer';
 import { createGameController } from './controller/game-controller';
 import './style.css';
@@ -17,6 +17,9 @@ const gameConfig: GameConfig = {
     { name: 'Player 2', color: '#0000FF' },
   ],
 };
+
+// Track last selected commander to detect changes
+let lastSelectedCommanderId: string | undefined = undefined;
 
 // Initialize game
 function initGame(): void {
@@ -34,6 +37,9 @@ function initGame(): void {
     // Create controller
     const controller = createGameController(gameConfig, renderer);
 
+    // Create unit info panel
+    createUnitInfoPanel();
+
     // Initialize and start game
     controller.initializeGame();
 
@@ -50,6 +56,9 @@ function initGame(): void {
     // Setup mouse controls for camera
     setupCameraControls(controller, renderer);
 
+    // Start render loop to check for selection changes
+    startSelectionMonitor(controller);
+
     console.log('✅ Game initialized successfully!');
     console.log('🎮 Controls:');
     console.log('  - Drag commander to move/attack');
@@ -61,6 +70,131 @@ function initGame(): void {
   } catch (error) {
     console.error('❌ Failed to initialize game:', error);
     showErrorMessage(error instanceof Error ? error.message : 'Unknown error');
+  }
+}
+
+/**
+ * Create the unit info panel HTML structure
+ */
+function createUnitInfoPanel(): void {
+  const app = document.getElementById('app');
+  if (!app) return;
+
+  const panel = document.createElement('div');
+  panel.id = 'unit-info-panel';
+  panel.className = 'selected-info';
+  panel.style.display = 'none'; // Hidden by default
+  
+    panel.innerHTML = `
+    <div id="player-color-indicator" class="player-color-box"></div>
+    <h4 id="unit-type-display">Unit Info</h4>
+    <div class="unit-stats">
+      <div class="stat-row">
+        <span class="stat-label">Bewegung:</span>
+        <span id="unit-move" class="stat-value">-</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Reichweite:</span>
+        <span id="unit-range" class="stat-value">-</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Einheiten:</span>
+        <span id="unit-count" class="stat-value">-</span>
+      </div>
+    </div>
+  `;
+  
+  app.appendChild(panel);
+}
+
+/**
+ * Monitor selection changes and update the info panel
+ */
+function startSelectionMonitor(controller: ReturnType<typeof createGameController>): void {
+  const checkSelection = () => {
+    const uiState = controller.getUIState();
+    const currentSelection = uiState.selectedCommanderId;
+    
+    // Only update if selection changed
+    if (currentSelection !== lastSelectedCommanderId) {
+      lastSelectedCommanderId = currentSelection;
+      updateUnitInfoPanel(controller);
+    }
+    
+    requestAnimationFrame(checkSelection);
+  };
+  
+  requestAnimationFrame(checkSelection);
+}
+
+/**
+ * Update the unit info panel with current selection
+ */
+function updateUnitInfoPanel(controller: ReturnType<typeof createGameController>): void {
+  const panel = document.getElementById('unit-info-panel');
+  if (!panel) return;
+  
+  const uiState = controller.getUIState();
+  const selectedId = uiState.selectedCommanderId;
+  
+  if (!selectedId) {
+    panel.style.display = 'none';
+    return;
+  }
+  
+  const gameState = controller.getGameState();
+  const commander = gameState.commanders.get(selectedId);
+  if (!commander) {
+    panel.style.display = 'none';
+    return;
+  }
+  
+  // Show panel
+  panel.style.display = 'block';
+  
+  // Update player color indicator
+  const colorIndicator = document.getElementById('player-color-indicator');
+  if (colorIndicator) {
+    const player = gameState.players.find(p => p.id === commander.playerId);
+    const playerColor = player?.color || '#ffffff';
+    colorIndicator.style.backgroundColor = playerColor;
+  }
+  
+  // Update unit type with appropriate color
+  const typeDisplay = document.getElementById('unit-type-display');
+  if (typeDisplay) {
+    const typeNames: Record<string, string> = {
+      'cavalry': 'Kavallerie',
+      'infantry': 'Infanterie',
+      'archer': 'Bogenschützen'
+    };
+    
+    const typeClasses: Record<string, string> = {
+      'cavalry': 'unit-type-cavalry',
+      'infantry': 'unit-type-infantry',
+      'archer': 'unit-type-archer'
+    };
+    
+    const unitType = commander.type;
+    const displayName = typeNames[unitType] || unitType;
+    const cssClass = typeClasses[unitType] || '';
+    
+    typeDisplay.innerHTML = `<span class="${cssClass}">${displayName}</span>${commander.isKing ? ' <span style="color: #ffd700;">👑</span>' : ''}`;
+  }
+  
+  // Update stats
+  const stats = TROOP_STATS[commander.type];
+  
+  const moveEl = document.getElementById('unit-move');
+  if (moveEl) moveEl.textContent = stats.moveRange.toString();
+  
+  const rangeEl = document.getElementById('unit-range');
+  if (rangeEl) rangeEl.textContent = stats.attackRange.toString();
+  
+  const countEl = document.getElementById('unit-count');
+  if (countEl) {
+    const activeUnits = commander.units.filter((u): u is NonNullable<typeof u> => u !== null && u.status === 'active').length;
+    countEl.textContent = `${activeUnits}/4`;
   }
 }
 
