@@ -34,5 +34,8 @@
   "bugs": {
     "url": "https://github.com/maieuticus/lands-of-glory/issues"
   },
-  "homepage": "https://github.com/maieuticus/lands-of-glory#readme"
+  "homepage": "https://github.com/maieuticus/lands-of-glory#readme",
+  "devDependencies": {
+    "typescript": "^6.0.3"
+  }
 }

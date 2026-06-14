@@ -347,7 +347,7 @@ export function applyCombatResult(
   // Apply attacker casualties
   const attacker = newCommanders.get(result.attackerId);
   if (attacker) {
-    const updatedUnits = attacker.units.map((unit) => {
+    const updatedUnits = attacker.units.map((unit): Unit | null => {
       if (unit && result.attackerCasualties.includes(unit.id)) {
         // Mark unit as removed
         newUnits.set(unit.id, { ...unit, status: 'removed' });
@@ -365,7 +365,7 @@ export function applyCombatResult(
   // Apply defender casualties
   const defender = newCommanders.get(result.defenderId);
   if (defender) {
-    const updatedUnits = defender.units.map((unit) => {
+    const updatedUnits = defender.units.map((unit): Unit | null => {
       if (unit && result.defenderCasualties.includes(unit.id)) {
         // Mark unit as removed
         newUnits.set(unit.id, { ...unit, status: 'removed' });
