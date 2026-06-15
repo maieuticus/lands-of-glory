@@ -85,9 +85,15 @@ export class CombatDiceAnimation {
     onComplete?: () => void
   ): void {
     if (this.isPlaying) return;
-    
+
     this.isPlaying = true;
     this.onCompleteCallback = onComplete;
+
+    // Unit info panel ausblenden
+    const unitInfoPanel = document.getElementById('unit-info-panel');
+    if (unitInfoPanel) {
+      unitInfoPanel.style.display = 'none';
+    }
     
     const playerColors: PlayerColors = {
       attackerColor,
@@ -154,9 +160,52 @@ export class CombatDiceAnimation {
   ): void {
     const container = new PIXI.Container();
     
-    // Attacker label with color box
+    // Helper function to colorize troop type names
+    const colorizeTroopName = (name: string): PIXI.Text[] => {
+      const parts: PIXI.Text[] = [];
+      let currentX = 0;
+      
+      // Check for "König " prefix
+      if (name.startsWith('König ')) {
+        const kingText = new PIXI.Text('König ', {
+          fontFamily: 'Arial',
+          fontSize: 18,
+          fontWeight: 'bold',
+          fill: 0xffffff,
+          stroke: 0x000000,
+          strokeThickness: 2,
+        });
+        kingText.anchor.set(0, 0.5);
+        parts.push(kingText);
+        currentX += kingText.width;
+        name = name.substring(6); // Remove "König " prefix
+      }
+      
+      // Determine color based on troop type
+      let troopColor = 0xffffff;
+      if (name.includes('Kavallerie')) troopColor = 0x4169E1; // Blue
+      else if (name.includes('Bogenschütze')) troopColor = 0xDC143C; // Red
+      else if (name.includes('Infanterie')) troopColor = 0x228B22; // Green
+      
+      const troopText = new PIXI.Text(name, {
+        fontFamily: 'Arial',
+        fontSize: 18,
+        fontWeight: 'bold',
+        fill: troopColor,
+        stroke: 0x000000,
+        strokeThickness: 2,
+      });
+      troopText.anchor.set(0, 0.5);
+      troopText.position.set(currentX, 0);
+      parts.push(troopText);
+      
+      return parts;
+    };
+    
+    // Attacker container
     const attackerContainer = new PIXI.Container();
     
+    // Attacker color box
     const attackerColorBox = new PIXI.Graphics();
     attackerColorBox.beginFill(playerColors.attackerColor);
     attackerColorBox.lineStyle(2, 0xffffff);
@@ -164,17 +213,30 @@ export class CombatDiceAnimation {
     attackerColorBox.endFill();
     attackerContainer.addChild(attackerColorBox);
     
-    const attackerLabel = new PIXI.Text(`⚔️ ${attackerName}`, {
+    // "Angreifer" label in attacker color
+    const attackerRoleLabel = new PIXI.Text('Angreifer', {
       fontFamily: 'Arial',
-      fontSize: 18,
+      fontSize: 14,
       fontWeight: 'bold',
-      fill: 0xffffff,
+      fill: playerColors.attackerColor,
       stroke: 0x000000,
       strokeThickness: 2,
     });
-    attackerLabel.anchor.set(0.5);
-    attackerLabel.position.set(0, 30);
-    attackerContainer.addChild(attackerLabel);
+    attackerRoleLabel.anchor.set(0.5);
+    attackerRoleLabel.position.set(0, 28);
+    attackerContainer.addChild(attackerRoleLabel);
+    
+    // Attacker troop name (colorized)
+    const attackerTroopContainer = new PIXI.Container();
+    const attackerTroopParts = colorizeTroopName(attackerName);
+    let attackerTroopWidth = 0;
+    attackerTroopParts.forEach(part => {
+      part.position.x -= attackerTroopWidth;
+      attackerTroopWidth += part.width;
+      attackerTroopContainer.addChild(part);
+    });
+    attackerTroopContainer.position.set(0, 48);
+    attackerContainer.addChild(attackerTroopContainer);
     
     attackerContainer.position.set(-140, 0);
     container.addChild(attackerContainer);
@@ -189,12 +251,13 @@ export class CombatDiceAnimation {
       strokeThickness: 3,
     });
     vsLabel.anchor.set(0.5);
-    vsLabel.position.set(0, 0);
+    vsLabel.position.set(0, -5);
     container.addChild(vsLabel);
 
-    // Defender label with color box
+    // Defender container
     const defenderContainer = new PIXI.Container();
     
+    // Defender color box
     const defenderColorBox = new PIXI.Graphics();
     defenderColorBox.beginFill(playerColors.defenderColor);
     defenderColorBox.lineStyle(2, 0xffffff);
@@ -202,17 +265,30 @@ export class CombatDiceAnimation {
     defenderColorBox.endFill();
     defenderContainer.addChild(defenderColorBox);
     
-    const defenderLabel = new PIXI.Text(`🛡️ ${defenderName}`, {
+    // "Verteidiger" label in defender color
+    const defenderRoleLabel = new PIXI.Text('Verteidiger', {
       fontFamily: 'Arial',
-      fontSize: 18,
+      fontSize: 14,
       fontWeight: 'bold',
-      fill: 0xffffff,
+      fill: playerColors.defenderColor,
       stroke: 0x000000,
       strokeThickness: 2,
     });
-    defenderLabel.anchor.set(0.5);
-    defenderLabel.position.set(0, 30);
-    defenderContainer.addChild(defenderLabel);
+    defenderRoleLabel.anchor.set(0.5);
+    defenderRoleLabel.position.set(0, 28);
+    defenderContainer.addChild(defenderRoleLabel);
+    
+    // Defender troop name (colorized)
+    const defenderTroopContainer = new PIXI.Container();
+    const defenderTroopParts = colorizeTroopName(defenderName);
+    let defenderTroopWidth = 0;
+    defenderTroopParts.forEach(part => {
+      part.position.x -= defenderTroopWidth;
+      defenderTroopWidth += part.width;
+      defenderTroopContainer.addChild(part);
+    });
+    defenderTroopContainer.position.set(0, 48);
+    defenderContainer.addChild(defenderTroopContainer);
     
     defenderContainer.position.set(140, 0);
     container.addChild(defenderContainer);
@@ -336,6 +412,7 @@ export class CombatDiceAnimation {
 
   /**
    * Show final results with bonuses, losses, and strength points
+   * New layout: Table format with Würfel | Bonuspunkte | Gesamt for both sides
    */
   private showFinalResults(
     centerX: number,
@@ -343,8 +420,6 @@ export class CombatDiceAnimation {
     combatResult: CombatResult,
     playerColors: PlayerColors
   ): void {
-    const resultContainer = new PIXI.Container();
-    
     // Calculate total strength for each side
     const attackerTotalStrength = combatResult.attackerRolls.reduce(
       (sum, roll) => sum + roll.effectiveValue, 0
@@ -353,15 +428,15 @@ export class CombatDiceAnimation {
       (sum, roll) => sum + roll.effectiveValue, 0
     );
     
-    // Show detailed pair comparisons with strength points
-    this.showPairComparisons(centerX, centerY - 80, combatResult, playerColors);
+    // Show dice overview table
+    this.showDiceOverviewTable(centerX, centerY - 40, combatResult, playerColors);
     
     // Show casualties summary
     const attackerLosses = combatResult.attackerCasualties.length;
     const defenderLosses = combatResult.defenderCasualties.length;
     
     // Result summary box
-    const summaryY = centerY + 60;
+    const summaryY = centerY + 180;
     
     let resultText = '';
     let resultColor = 0xffffff;
@@ -452,6 +527,246 @@ export class CombatDiceAnimation {
     this.container.hitArea = new PIXI.Rectangle(0, 0, this.app.screen.width, this.app.screen.height);
     this.container.cursor = 'pointer';
     this.container.once('pointerdown', () => this.close());
+  }
+
+  /**
+   * Show dice overview with combined dice and table
+   * Structure per row: Würfel Bonus Gesamt X vs X Gesamt Bonus Würfel
+   */
+  private showDiceOverviewTable(
+    centerX: number,
+    startY: number,
+    combatResult: CombatResult,
+    playerColors: PlayerColors
+  ): void {
+    const tableContainer = new PIXI.Container();
+    
+    // Column widths and spacing
+    const diceColWidth = 50;
+    const bonusColWidth = 60;
+    const totalColWidth = 55;
+    const lossColWidth = 30;
+    const vsWidth = 40;
+    const colGap = 4;
+    
+    // Calculate center and side positions
+    const leftSideX = centerX - vsWidth / 2 - lossColWidth - totalColWidth - bonusColWidth - diceColWidth - colGap * 3;
+    const rightSideX = centerX + vsWidth / 2 + lossColWidth;
+    
+    // Header row
+    const headerY = startY;
+    const headerStyle = new PIXI.TextStyle({
+      fontFamily: 'Arial',
+      fontSize: 11,
+      fontWeight: 'bold',
+      fill: 0xaaaaaa,
+    });
+    
+    // Attacker headers (left side, reading left to right)
+    let currentX = leftSideX;
+    const attDiceHeader = new PIXI.Text('Würfel', headerStyle);
+    attDiceHeader.anchor.set(0.5, 0);
+    attDiceHeader.position.set(currentX + diceColWidth / 2, headerY);
+    tableContainer.addChild(attDiceHeader);
+    currentX += diceColWidth + colGap;
+    
+    const attBonusHeader = new PIXI.Text('Bonus', headerStyle);
+    attBonusHeader.anchor.set(0.5, 0);
+    attBonusHeader.position.set(currentX + bonusColWidth / 2, headerY);
+    tableContainer.addChild(attBonusHeader);
+    currentX += bonusColWidth + colGap;
+    
+    const attTotalHeader = new PIXI.Text('Gesamt', headerStyle);
+    attTotalHeader.anchor.set(0.5, 0);
+    attTotalHeader.position.set(currentX + totalColWidth / 2, headerY);
+    tableContainer.addChild(attTotalHeader);
+    currentX += totalColWidth + colGap;
+    
+    // Loss column header (empty)
+    currentX += lossColWidth + colGap;
+    
+    // VS header
+    const vsHeader = new PIXI.Text('VS', {
+      fontFamily: 'Arial',
+      fontSize: 12,
+      fontWeight: 'bold',
+      fill: 0xffd700,
+    });
+    vsHeader.anchor.set(0.5, 0);
+    vsHeader.position.set(centerX, headerY + 2);
+    tableContainer.addChild(vsHeader);
+    
+    // Defender headers (right side, reading right to left)
+    currentX = rightSideX;
+    const defTotalHeader = new PIXI.Text('Gesamt', headerStyle);
+    defTotalHeader.anchor.set(0.5, 0);
+    defTotalHeader.position.set(currentX + totalColWidth / 2, headerY);
+    tableContainer.addChild(defTotalHeader);
+    currentX += totalColWidth + colGap;
+    
+    const defBonusHeader = new PIXI.Text('Bonus', headerStyle);
+    defBonusHeader.anchor.set(0.5, 0);
+    defBonusHeader.position.set(currentX + bonusColWidth / 2, headerY);
+    tableContainer.addChild(defBonusHeader);
+    currentX += bonusColWidth + colGap;
+    
+    const defDiceHeader = new PIXI.Text('Würfel', headerStyle);
+    defDiceHeader.anchor.set(0.5, 0);
+    defDiceHeader.position.set(currentX + diceColWidth / 2, headerY);
+    tableContainer.addChild(defDiceHeader);
+    
+    // Data rows - iterate through pairs
+    const rowHeight = 36;
+    const dataStartY = headerY + 22;
+    
+    // Sort pairs by the higher effective value
+    const sortedPairs = [...combatResult.pairs].sort((a, b) => {
+      const maxA = Math.max(a.attackerDie.effectiveValue, a.defenderDie.effectiveValue);
+      const maxB = Math.max(b.attackerDie.effectiveValue, b.defenderDie.effectiveValue);
+      return maxB - maxA;
+    });
+    
+    sortedPairs.forEach((pair, i) => {
+      const rowY = dataStartY + i * rowHeight;
+      const attLost = !pair.attackerWins;
+      const defLost = pair.attackerWins;
+      
+      // Attacker row (left side)
+      currentX = leftSideX;
+      
+      // Würfel value
+      const attDiceValue = new PIXI.Text(pair.attackerDie.naturalValue.toString(), {
+        fontFamily: 'Arial',
+        fontSize: 16,
+        fontWeight: 'bold',
+        fill: attLost ? 0xff6666 : 0xffffff,
+        stroke: 0x000000,
+        strokeThickness: 2,
+      });
+      attDiceValue.anchor.set(0.5);
+      attDiceValue.position.set(currentX + diceColWidth / 2, rowY);
+      tableContainer.addChild(attDiceValue);
+      currentX += diceColWidth + colGap;
+      
+      // Bonus
+      let attBonusText = '';
+      if (pair.attackerDie.bonusPoints > 0) attBonusText += `+${pair.attackerDie.bonusPoints}⚔️`;
+      if (pair.attackerDie.kingBonus > 0) attBonusText += (attBonusText ? '' : '') + '👑';
+      if (!attBonusText) attBonusText = '-';
+      
+      const attBonusValue = new PIXI.Text(attBonusText, {
+        fontFamily: 'Arial',
+        fontSize: 10,
+        fill: pair.attackerDie.bonusPoints > 0 || pair.attackerDie.kingBonus > 0 ? 0xffeb3b : 0x666666,
+        align: 'center',
+      });
+      attBonusValue.anchor.set(0.5);
+      attBonusValue.position.set(currentX + bonusColWidth / 2, rowY);
+      tableContainer.addChild(attBonusValue);
+      currentX += bonusColWidth + colGap;
+      
+      // Gesamt
+      const attTotalValue = new PIXI.Text(pair.attackerDie.effectiveValue.toString(), {
+        fontFamily: 'Arial',
+        fontSize: 16,
+        fontWeight: 'bold',
+        fill: attLost ? 0xff6666 : playerColors.attackerColor,
+        stroke: 0x000000,
+        strokeThickness: 2,
+      });
+      attTotalValue.anchor.set(0.5);
+      attTotalValue.position.set(currentX + totalColWidth / 2, rowY);
+      tableContainer.addChild(attTotalValue);
+      currentX += totalColWidth + colGap;
+      
+      // X bei Verlust
+      if (attLost) {
+        const attLossMarker = new PIXI.Text('❌', {
+          fontFamily: 'Arial',
+          fontSize: 12,
+        });
+        attLossMarker.anchor.set(0.5);
+        attLossMarker.position.set(currentX + lossColWidth / 2, rowY);
+        tableContainer.addChild(attLossMarker);
+      }
+      currentX += lossColWidth + colGap;
+      
+      // VS indicator
+      const vsSymbol = pair.attackerWins ? '>' : '<';
+      const vsColor = pair.attackerWins ? playerColors.attackerColor : playerColors.defenderColor;
+      const vsIndicator = new PIXI.Text(vsSymbol, {
+        fontFamily: 'Arial',
+        fontSize: 14,
+        fontWeight: 'bold',
+        fill: vsColor,
+      });
+      vsIndicator.anchor.set(0.5);
+      vsIndicator.position.set(centerX, rowY);
+      tableContainer.addChild(vsIndicator);
+      
+      // Defender row (right side, mirrored)
+      currentX = rightSideX;
+      
+      // X bei Verlust
+      if (defLost) {
+        const defLossMarker = new PIXI.Text('❌', {
+          fontFamily: 'Arial',
+          fontSize: 12,
+        });
+        defLossMarker.anchor.set(0.5);
+        defLossMarker.position.set(currentX + lossColWidth / 2, rowY);
+        tableContainer.addChild(defLossMarker);
+      }
+      currentX += lossColWidth + colGap;
+      
+      // Gesamt
+      const defTotalValue = new PIXI.Text(pair.defenderDie.effectiveValue.toString(), {
+        fontFamily: 'Arial',
+        fontSize: 16,
+        fontWeight: 'bold',
+        fill: defLost ? 0xff6666 : playerColors.defenderColor,
+        stroke: 0x000000,
+        strokeThickness: 2,
+      });
+      defTotalValue.anchor.set(0.5);
+      defTotalValue.position.set(currentX + totalColWidth / 2, rowY);
+      tableContainer.addChild(defTotalValue);
+      currentX += totalColWidth + colGap;
+      
+      // Bonus
+      let defBonusText = '';
+      if (pair.defenderDie.bonusPoints > 0) defBonusText += `+${pair.defenderDie.bonusPoints}⚔️`;
+      if (pair.defenderDie.kingBonus > 0) defBonusText += (defBonusText ? '' : '') + '👑';
+      if (!defBonusText) defBonusText = '-';
+      
+      const defBonusValue = new PIXI.Text(defBonusText, {
+        fontFamily: 'Arial',
+        fontSize: 10,
+        fill: pair.defenderDie.bonusPoints > 0 || pair.defenderDie.kingBonus > 0 ? 0xffeb3b : 0x666666,
+        align: 'center',
+      });
+      defBonusValue.anchor.set(0.5);
+      defBonusValue.position.set(currentX + bonusColWidth / 2, rowY);
+      tableContainer.addChild(defBonusValue);
+      currentX += bonusColWidth + colGap;
+      
+      // Würfel value
+      const defDiceValue = new PIXI.Text(pair.defenderDie.naturalValue.toString(), {
+        fontFamily: 'Arial',
+        fontSize: 16,
+        fontWeight: 'bold',
+        fill: defLost ? 0xff6666 : 0xffffff,
+        stroke: 0x000000,
+        strokeThickness: 2,
+      });
+      defDiceValue.anchor.set(0.5);
+      defDiceValue.position.set(currentX + diceColWidth / 2, rowY);
+      tableContainer.addChild(defDiceValue);
+    });
+    
+    // Summenzeile entfernt - keine Total row mehr
+    
+    this.container.addChild(tableContainer);
   }
 
   /**
@@ -657,11 +972,17 @@ export class CombatDiceAnimation {
    */
   close(): void {
     if (!this.isPlaying) return;
-    
+
     this.isPlaying = false;
     this.container.visible = false;
     this.container.removeChildren();
-    
+
+    // Unit info panel wieder anzeigen (wird in main.ts basierend auf Auswahl aktualisiert)
+    const unitInfoPanel = document.getElementById('unit-info-panel');
+    if (unitInfoPanel) {
+      unitInfoPanel.style.display = 'block';
+    }
+
     if (this.onCompleteCallback) {
       this.onCompleteCallback();
       this.onCompleteCallback = undefined;
