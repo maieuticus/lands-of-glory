@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lands of Glory - Canvas Würfel Kampf</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.3.2/pixi.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #fff;
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 10px;
+            font-size: 2.5rem;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #888;
+            margin-bottom: 20px;
+        }
+
+        /* Legende */
+        .legend {
+            background: rgba(255,255,255,0.1);
+            border-radius: 10px;
+            padding: 15px 20px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: center;
+            gap: 30px;
+            flex-wrap: wrap;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .legend-dice {
+            width: 30px;
+            height: 30px;
+            border-radius: 5px;
+            border: 2px solid #666;
+        }
+
+        .legend-dice.white {
+            background: #fff;
+        }
+
+        .legend-dice.black {
+            background: #1a1a1a;
+            border-color: #444;
+        }
+
+        .troop-badge {
+            padding: 4px 12px;
+            border-radius: 15px;
+            font-size: 0.85rem;
+            font-weight: bold;
+        }
+
+        .troop-badge.archer { background: #e74c3c; }
+        .troop-badge.cavalry { background: #3498db; }
+        .troop-badge.infantry { background: #2ecc71; }
+
+        /* Kampf-Section */
+        .combat-section {
+            background: rgba(255,255,255,0.05);
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 25px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .combat-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid rgba(255,255,255,0.1);
+        }
+
+        .combat-title {
+            font-size: 1.4rem;
+            color: #f1c40f;
+        }
+
+        .combat-players {
+            display: flex;
+            gap: 40px;
+        }
+
+        .player-info {
+            text-align: center;
+        }
+
+        .player-name {
+            font-size: 1.1rem;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .player-name.attacker {
+            color: #fff;
+            text-shadow: 0 0 10px rgba(255,255,255,0.5);
+        }
+
+        .player-name.defender {
+            color: #888;
+        }
+
+        /* Canvas Container */
+        .canvas-container {
+            display: flex;
+            justify-content: center;
+            gap: 40px;
+            margin: 20px 0;
+            flex-wrap: wrap;
+        }
+
+        .dice-column {
+            text-align: center;
+        }
+
+        .dice-column h3 {
+            margin-bottom: 10px;
+            color: #f1c40f;
+            font-size: 1rem;
+        }
+
+        .dice-canvas {
+            border-radius: 10px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+        }
+
+        /* Tabelle */
+        .table-container {
+            margin-top: 20px;
+            overflow-x: auto;
+        }
+
+        .dice-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+        }
+
+        .dice-table th {
+            background: rgba(241, 196, 15, 0.2);
+            padding: 12px;
+            text-align: center;
+            font-weight: bold;
+            color: #f1c40f;
+        }
+
+        .dice-table th:first-child {
+            width: 60px;
+        }
+
+        .dice-table td {
+            padding: 15px;
+            text-align: center;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .dice-table tr:hover {
+            background: rgba(255,255,255,0.05);
+        }
+
+        .result-cell {
+            font-weight: bold;
+            font-size: 1.1rem;
+        }
+
+        .result-cell.win { color: #2ecc71; }
+        .result-cell.loss { color: #e74c3c; }
+        .result-cell.tie { color: #f1c40f; }
+
+        /* Ergebnis */
+        .combat-result {
+            background: rgba(0,0,0,0.3);
+            border-radius: 10px;
+            padding: 20px;
+            margin-top: 20px;
+            text-align: center;
+        }
+
+        .result-title {
+            font-size: 1.2rem;
+            color: #f1c40f;
+            margin-bottom: 15px;
+        }
+
+        .casualties {
+            display: flex;
+            justify-content: center;
+            gap: 60px;
+            margin-top: 15px;
+            flex-wrap: wrap;
+        }
+
+        .casualty-box {
+            padding: 15px 25px;
+            border-radius: 10px;
+            background: rgba(231, 76, 60, 0.2);
+            border: 1px solid rgba(231, 76, 60, 0.5);
+        }
+
+        .casualty-box h4 {
+            margin-bottom: 8px;
+            color: #e74c3c;
+        }
+
+        /* Steuerung */
+        .controls {
+            text-align: center;
+            margin: 30px 0;
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            background: linear-gradient(145deg, #f1c40f 0%, #d4ac0d 100%);
+            color: #1a1a2e;
+            border: none;
+            padding: 15px 40px;
+            font-size: 1.1rem;
+            font-weight: bold;
+            border-radius: 30px;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 4px 15px rgba(241, 196, 15, 0.4);
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(241, 196, 15, 0.6);
+        }
+
+        .btn.secondary {
+            background: linear-gradient(145deg, #3498db 0%, #2980b9 100%);
+            color: #fff;
+            box-shadow: 0 4px 15px rgba(52, 152, 219, 0.4);
+        }
+
+        .btn.secondary:hover {
+            box-shadow: 0 6px 20px rgba(52, 152, 219, 0.6);
+        }
+
+        .mini-dice {
+            display: inline-flex;
+            gap: 5px;
+            margin: 0 10px;
+            vertical-align: middle;
+        }
+
+        .mini-die {
+            width: 30px;
+            height: 30px;
+            border-radius: 5px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 14px;
+        }
+
+        .mini-die.white {
+            background: #fff;
+            color: #1a1a1a;
+            border: 1px solid #ccc;
+        }
+
+        .mini-die.black {
+            background: #1a1a1a;
+            color: #fff;
+            border: 1px solid #444;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>⚔️ Lands of Glory</h1>
+        <p class="subtitle">Canvas Würfel-Kampf Visualisierung (PixiJS)</p>
+
+        <!-- Legende -->
+        <div class="legend">
+            <div class="legend-item">
+                <div class="legend-dice white"></div>
+                <span>Angreifer (Weiß)</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-dice black"></div>
+                <span>Verteidiger (Schwarz)</span>
+            </div>
+            <div class="legend-item">
+                <span class="troop-badge archer">Bogenschützen</span>
+            </div>
+            <div class="legend-item">
+                <span class="troop-badge cavalry">Kavallerie</span>
+            </div>
+            <div class="legend-item">
+                <span class="troop-badge infantry">Infanterie</span>
+            </div>
+        </div>
+
+        <!-- Kampf 1 -->
+        <div class="combat-section" id="combat1">
+            <div class="combat-header">
+                <h2 class="combat-title">Kampf #1: Infanterie vs Infanterie</h2>
+                <div class="combat-players">
+                    <div class="player-info">
+                        <div class="player-name attacker">⚔️ Angreifer</div>
+                        <div class="player-type"><span class="troop-badge infantry">Infanterie</span></div>
+                    </div>
+                    <div class="player-info">
+                        <div class="player-name defender">🛡️ Verteidiger</div>
+                        <div class="player-type"><span class="troop-badge infantry">Infanterie</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="canvas-container">
+                <div class="dice-column">
+                    <h3>Würfel Angreifer</h3>
+                    <div id="canvas-attacker-1" class="dice-canvas"></div>
+                </div>
+                <div class="dice-column">
+                    <h3>Würfel Verteidiger</h3>
+                    <div id="canvas-defender-1" class="dice-canvas"></div>
+                </div>
+            </div>
+
+            <div class="table-container">
+                <table class="dice-table">
+                    <thead>
+                        <tr>
+                            <th>Paar</th>
+                            <th>Angreifer</th>
+                            <th>Verteidiger</th>
+                            <th>Ergebnis</th>
+                        </tr>
+                    </thead>
+                    <tbody id="table-body-1"></tbody>
+                </table>
+            </div>
+
+            <div class="combat-result">
+                <div class="result-title">📊 Kampfergebnis</div>
+                <div class="casualties">
+                    <div class="casualty-box">
+                        <h4>💀 Angreifer-Verluste</h4>
+                        <div id="losses-attacker-1">0 Units</div>
+                    </div>
+                    <div class="casualty-box">
+                        <h4>💀 Verteidiger-Verluste</h4>
+                        <div id="losses-defender-1">0 Units</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Kampf 2 -->
+        <div class="combat-section" id="combat2">
+            <div class="combat-header">
+                <h2 class="combat-title">Kampf #2: König (Kavallerie) vs Bogenschützen</h2>
+                <div class="combat-players">
+                    <div class="player-info">
+                        <div class="player-name attacker">👑 König</div>
+                        <div class="player-type"><span class="troop-badge cavalry">Kavallerie</span> 👑</div>
+                    </div>
+                    <div class="player-info">
+                        <div class="player-name defender">🏹 Verteidiger</div>
+                        <div class="player-type"><span class="troop-badge archer">Bogenschützen</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="canvas-container">
+                <div class="dice-column">
+                    <h3>Würfel König</h3>
+                    <div id="canvas-attacker-2" class="dice-canvas"></div>
+                </div>
+                <div class="dice-column">
+                    <h3>Würfel Verteidiger</h3>
+                    <div id="canvas-defender-2" class="dice-canvas"></div>
+                </div>
+            </div>
+
+            <div class="table-container">
+                <table class="dice-table">
+                    <thead>
+                        <tr>
+                            <th>Paar</th>
+                            <th>Angreifer</th>
+                            <th>Verteidiger</th>
+                            <th>Ergebnis</th>
+                        </tr>
+                    </thead>
+                    <tbody id="table-body-2"></tbody>
+                </table>
+            </div>
+
+            <div class="combat-result">
+                <div class="result-title">📊 Kampfergebnis</div>
+                <div class="casualties">
+                    <div class="casualty-box">
+                        <h4>💀 Angreifer-Verluste</h4>
+                        <div id="losses-attacker-2">0 Units</div>
+                    </div>
+                    <div class="casualty-box">
+                        <h4>💀 Verteidiger-Verluste</h4>
+                        <div id="losses-defender-2">0 Units</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Steuerung -->
+        <div class="controls">
+            <button class="btn" onclick="rollCombat(1)">🎲 Kampf 1 Würfeln</button>
+            <button class="btn" onclick="rollCombat(2)">🎲 Kampf 2 Würfeln</button>
+            <button class="btn secondary" onclick="rollAllCombat()">🎲 Alle Kämpfe</button>
+        </div>
+    </div>
+
+    <script>
+        // Dice Renderer basierend auf dice-renderer.ts
+        class DiceRenderer {
+            constructor(config = {}) {
+                this.config = {
+                    size: 48,
+                    backgroundColor: 0xffffff,
+                    dotColor: 0x1a1a1a,
+                    borderColor: 0x333333,
+                    borderWidth: 2,
+                    cornerRadius: 6,
+                    ...config
+                };
+            }
+
+            createDice(value, playerColor) {
+                const container = new PIXI.Container();
+                const graphics = new PIXI.Graphics();
+
+                const { size, borderColor, borderWidth, cornerRadius } = this.config;
+                const dotRadius = size * 0.08;
+                
+                let bgColor = this.config.backgroundColor;
+                let dotColor = this.config.dotColor;
+                
+                if (playerColor !== undefined) {
+                    const isBlack = playerColor === 0x000000 || 
+                                    (playerColor < 0x333333 && playerColor > 0x111111);
+                    
+                    if (isBlack) {
+                        bgColor = 0x000000;
+                        dotColor = 0xffffff;
+                    } else {
+                        bgColor = playerColor;
+                        dotColor = 0x000000;
+                    }
+                }
+
+                // Würfel-Hintergrund
+                graphics.beginFill(bgColor);
+                graphics.lineStyle(borderWidth, borderColor, 1);
+                graphics.drawRoundedRect(-size / 2, -size / 2, size, size, cornerRadius);
+                graphics.endFill();
+
+                // Punkte
+                graphics.beginFill(dotColor);
+                const positions = this.getDotPositions(value, size);
+                for (const pos of positions) {
+                    graphics.drawCircle(pos.x, pos.y, dotRadius);
+                }
+                graphics.endFill();
+
+                container.addChild(graphics);
+                return container;
+            }
+
+            createCombatDice(naturalValue, bonusPoints, kingBonus, isAttacker) {
+                const container = new PIXI.Container();
+                
+                const playerColor = isAttacker ? 0xffffff : 0x000000;
+                const dice = this.createDice(naturalValue, playerColor);
+                container.addChild(dice);
+
+                const { size } = this.config;
+
+                // Bonus-Indikatoren
+                if (bonusPoints > 0) {
+                    const bonusLabel = this.createBonusLabel(`+${bonusPoints}`, 0xffeb3b);
+                    bonusLabel.position.set(size / 2 + 8, 0);
+                    container.addChild(bonusLabel);
+                }
+
+                if (kingBonus > 0) {
+                    const kingLabel = this.createBonusLabel('👑', 0xffd700);
+                    kingLabel.position.set(0, -size / 2 - 10);
+                    container.addChild(kingLabel);
+                }
+
+                return container;
+            }
+
+            createBonusLabel(text, color) {
+                const container = new PIXI.Container();
+                const label = new PIXI.Text(text, {
+                    fontFamily: 'Arial',
+                    fontSize: 12,
+                    fontWeight: 'bold',
+                    fill: color,
+                    stroke: 0x000000,
+                    strokeThickness: 2,
+                });
+                label.anchor.set(0.5);
+                container.addChild(label);
+                return container;
+            }
+
+            getDotPositions(value, size) {
+                const offset = size * 0.28;
+
+                switch (value) {
+                    case 1:
+                        return [{ x: 0, y: 0 }];
+                    case 2:
+                        return [
+                            { x: -offset, y: -offset },
+                            { x: offset, y: offset },
+                        ];
+                    case 3:
+                        return [
+                            { x: -offset, y: -offset },
+                            { x: 0, y: 0 },
+                            { x: offset, y: offset },
+                        ];
+                    case 4:
+                        return [
+                            { x: -offset, y: -offset },
+                            { x: offset, y: -offset },
+                            { x: -offset, y: offset },
+                            { x: offset, y: offset },
+                        ];
+                    case 5:
+                        return [
+                            { x: -offset, y: -offset },
+                            { x: offset, y: -offset },
+                            { x: 0, y: 0 },
+                            { x: -offset, y: offset },
+                            { x: offset, y: offset },
+                        ];
+                    case 6:
+                        return [
+                            { x: -offset, y: -offset },
+                            { x: offset, y: -offset },
+                            { x: -offset, y: 0 },
+                            { x: offset, y: 0 },
+                            { x: -offset, y: offset },
+                            { x: offset, y: offset },
+                        ];
+                    default:
+                        return [{ x: 0, y: 0 }];
+                }
+            }
+        }
+
+        // Apps speichern
+        const apps = {};
+        const diceRenderer = new DiceRenderer();
+
+        // Canvas initialisieren
+        function initCanvas(containerId, width, height) {
+            const container = document.getElementById(containerId);
+            container.innerHTML = '';
+            
+            const app = new PIXI.Application({
+                width: width,
+                height: height,
+                backgroundColor: 0x1a1a2e,
+                backgroundAlpha: 0.5,
+                antialias: true,
+                resolution: window.devicePixelRatio || 1,
+            });
+            
+            container.appendChild(app.view);
+            app.view.classList.add('dice-canvas');
+            
+            return app;
+        }
+
+        // Würfel zeichnen
+        function renderDice(app, diceData, startX, startY) {
+            app.stage.removeChildren();
+            
+            diceData.forEach((data, index) => {
+                const dice = diceRenderer.createCombatDice(
+                    data.value,
+                    data.bonus || 0,
+                    data.kingBonus || 0,
+                    data.isAttacker
+                );
+                
+                const spacing = 70;
+                dice.position.set(startX + (index * spacing), startY);
+                
+                // Animation
+                dice.scale.set(0);
+                let scale = 0;
+                const animate = () => {
+                    scale += 0.1;
+                    if (scale >= 1) {
+                        scale = 1;
+                        dice.scale.set(scale);
+                        return;
+                    }
+                    dice.scale.set(scale);
+                    requestAnimationFrame(animate);
+                };
+                setTimeout(() => animate(), index * 100);
+                
+                app.stage.addChild(dice);
+            });
+        }
+
+        // Zufälligen Wurf generieren
+        function rollDice() {
+            return Math.floor(Math.random() * 6) + 1;
+        }
+
+        // Kampf generieren
+        function generateCombat(combatId) {
+            const numDice = combatId === 1 ? 2 : 3;
+            const isKing = combatId === 2;
+            
+            const attackerDice = [];
+            const defenderDice = [];
+            const pairs = [];
+            
+            for (let i = 0; i < numDice; i++) {
+                const attValue = rollDice();
+                const defValue = rollDice();
+                const attBonus = Math.random() > 0.7 ? Math.floor(Math.random() * 2) + 1 : 0;
+                const defBonus = Math.random() > 0.7 ? Math.floor(Math.random() * 2) + 1 : 0;
+                const kingBonus = (isKing && i === 0) ? 1 : 0;
+                
+                attackerDice.push({
+                    value: attValue,
+                    bonus: attBonus,
+                    kingBonus: kingBonus,
+                    isAttacker: true
+                });
+                
+                defenderDice.push({
+                    value: defValue,
+                    bonus: defBonus,
+                    kingBonus: 0,
+                    isAttacker: false
+                });
+                
+                const attTotal = attValue + attBonus + kingBonus;
+                const defTotal = defValue + defBonus;
+                
+                let result, resultClass;
+                if (attTotal > defTotal) {
+                    result = 'Angreifer ✓';
+                    resultClass = 'win';
+                } else if (defTotal > attTotal) {
+                    result = 'Verteidiger ✓';
+                    resultClass = 'loss';
+                } else {
+                    result = 'Unentschieden';
+                    resultClass = 'tie';
+                }
+                
+                pairs.push({
+                    attacker: { value: attValue, bonus: attBonus, king: kingBonus > 0 },
+                    defender: { value: defValue, bonus: defBonus },
+                    result: result,
+                    resultClass: resultClass
+                });
+            }
+            
+            return { attackerDice, defenderDice, pairs };
+        }
+
+        // Tabelle rendern
+        function renderTable(tableId, pairs) {
+            const tbody = document.getElementById(tableId);
+            tbody.innerHTML = '';
+            
+            let attLosses = 0;
+            let defLosses = 0;
+            
+            pairs.forEach((pair, index) => {
+                const row = document.createElement('tr');
+                
+                if (pair.resultClass === 'win') defLosses++;
+                else if (pair.resultClass === 'loss') attLosses++;
+                
+                const attDisplay = pair.attacker.king 
+                    ? `${pair.attacker.value}+👑${pair.attacker.bonus > 0 ? '+' + pair.attacker.bonus : ''}`
+                    : `${pair.attacker.value}${pair.attacker.bonus > 0 ? '+' + pair.attacker.bonus : ''}`;
+                    
+                const defDisplay = `${pair.defender.value}${pair.defender.bonus > 0 ? '+' + pair.defender.bonus : ''}`;
+                
+                row.innerHTML = `
+                    <td>${index + 1}</td>
+                    <td>
+                        <div class="mini-dice">
+                            <div class="mini-die white">${attDisplay}</div>
+                        </div>
+                    </td>
+                    <td>
+                        <div class="mini-dice">
+                            <div class="mini-die black">${defDisplay}</div>
+                        </div>
+                    </td>
+                    <td class="result-cell ${pair.resultClass}">${pair.result}</td>
+                `;
+                
+                tbody.appendChild(row);
+            });
+            
+            return { attLosses, defLosses };
+        }
+
+        // Einzelnen Kampf würfeln
+        function rollCombat(combatId) {
+            const combat = generateCombat(combatId);
+            
+            // Canvas initialisieren wenn nötig
+            if (!apps[`attacker-${combatId}`]) {
+                apps[`attacker-${combatId}`] = initCanvas(`canvas-attacker-${combatId}`, 300, 80);
+            }
+            if (!apps[`defender-${combatId}`]) {
+                apps[`defender-${combatId}`] = initCanvas(`canvas-defender-${combatId}`, 300, 80);
+            }
+            
+            // Würfel rendern
+            renderDice(apps[`attacker-${combatId}`], combat.attackerDice, 35, 40);
+            renderDice(apps[`defender-${combatId}`], combat.defenderDice, 35, 40);
+            
+            // Tabelle aktualisieren
+            const losses = renderTable(`table-body-${combatId}`, combat.pairs);
+            
+            // Verluste anzeigen
+            document.getElementById(`losses-attacker-${combatId}`).textContent = 
+                `${losses.attLosses} Unit${losses.attLosses !== 1 ? 's' : ''}`;
+            document.getElementById(`losses-defender-${combatId}`).textContent = 
+                `${losses.defLosses} Unit${losses.defLosses !== 1 ? 's' : ''}`;
+        }
+
+        // Alle Kämpfe würfeln
+        function rollAllCombat() {
+            rollCombat(1);
+            setTimeout(() => rollCombat(2), 200);
+        }
+
+        // Initial laden
+        window.onload = () => {
+            rollAllCombat();
+        };
+    </script>
+</body>
+</html>
