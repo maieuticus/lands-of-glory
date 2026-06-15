@@ -1,19 +1,19 @@
 /**
  * apps/prototype/src/renderer/combat-animation.ts
  *
- * Combat dice animation system - Vertical layout with clear results
+ * Combat dice animation system - Single view with rolling dice
  *
  * Shows:
- * - Rolling dice animation (shortened)
- * - Final dice results with bonuses in vertical columns
- * - Player colors on dice sides
- * - Lost dice marked clearly
- * - Strength points displayed
- * - Clear pairwise comparison
+ * - Player badges and VS visible throughout
+ * - Rolling dice animation
+ * - Würfel stay visible, only additional elements are added
+ * - Bonus badges appear on dice
+ * - Loss markers appear for losers
+ * - Combat results at bottom
  */
 
 import * as PIXI from 'pixi.js';
-import { CombatResult, DieRoll, PairResult, CommanderId } from '@lands-of-glory/game-core';
+import { CombatResult, DieRoll, PairResult } from '@lands-of-glory/game-core';
 import { DiceRenderer } from './dice-renderer';
 
 /**
@@ -29,13 +29,13 @@ export interface CombatAnimationConfig {
 }
 
 /**
- * Default configuration - shortened animation
+ * Default configuration
  */
 const DEFAULT_CONFIG: CombatAnimationConfig = {
-  diceSize: 44,
-  diceSpacing: 4,
-  pairSpacing: 70,
-  animationDuration: 800, // Shortened from 2000ms
+  diceSize: 55,
+  diceSpacing: 20,
+  pairSpacing: 200,
+  animationDuration: 800,
   rollInterval: 80,
   resultDelay: 400,
 };
@@ -49,7 +49,27 @@ interface PlayerColors {
 }
 
 /**
- * Combat dice animation
+ * Troop type colors matching the demo
+ */
+const TROOP_COLORS = {
+  infantry: 0x2ecc71,  // Green
+  cavalry: 0x3498db,   // Blue
+  archer: 0xe74c3c,    // Red
+};
+
+/**
+ * Interface for tracking dice containers
+ */
+interface DiceRow {
+  attackerDice: PIXI.Container;
+  defenderDice: PIXI.Container;
+  attackerRoll: DieRoll | null;
+  defenderRoll: DieRoll | null;
+  rowY: number;
+}
+
+/**
+ * Combat dice animation - single continuous view
  */
 export class CombatDiceAnimation {
   private app: PIXI.Application;
@@ -58,6 +78,7 @@ export class CombatDiceAnimation {
   private config: CombatAnimationConfig;
   private isPlaying = false;
   private onCompleteCallback?: () => void;
+  private diceRows: DiceRow[] = [];
 
   constructor(
     app: PIXI.Application,
@@ -88,6 +109,7 @@ export class CombatDiceAnimation {
 
     this.isPlaying = true;
     this.onCompleteCallback = onComplete;
+    this.diceRows = [];
 
     // Unit info panel ausblenden
     const unitInfoPanel = document.getElementById('unit-info-panel');
@@ -106,7 +128,7 @@ export class CombatDiceAnimation {
     
     // Create semi-transparent background
     const bg = new PIXI.Graphics();
-    bg.beginFill(0x000000, 0.85);
+    bg.beginFill(0x000000, 0.9);
     bg.drawRect(0, 0, this.app.screen.width, this.app.screen.height);
     bg.endFill();
     bg.eventMode = 'static';
@@ -124,32 +146,20 @@ export class CombatDiceAnimation {
       fill: 0xffd700,
       stroke: 0x000000,
       strokeThickness: 4,
-      align: 'center',
     });
     title.anchor.set(0.5);
-    title.position.set(centerX, 60);
+    title.position.set(centerX, 50);
     this.container.addChild(title);
 
-    // Create player labels with colors
+    // Create player labels (visible throughout)
     this.createPlayerLabels(centerX, 110, attackerName, defenderName, playerColors);
 
-    // Play dice rolling animation
-    this.animateDiceRolling(
-      centerX,
-      centerY - 30,
-      combatResult,
-      playerColors,
-      () => {
-        // After rolling, show final results
-        setTimeout(() => {
-          this.showFinalResults(centerX, centerY + 120, combatResult, playerColors);
-        }, this.config.resultDelay);
-      }
-    );
+    // Create all UI elements and dice (visible throughout)
+    this.createDiceUI(centerX, centerY, combatResult, playerColors);
   }
 
   /**
-   * Create player labels with color indicators
+   * Create player badges like in dice-visual-demo.html
    */
   private createPlayerLabels(
     centerX: number,
@@ -160,343 +170,513 @@ export class CombatDiceAnimation {
   ): void {
     const container = new PIXI.Container();
     
-    // Helper function to colorize troop type names
-    const colorizeTroopName = (name: string): PIXI.Text[] => {
-      const parts: PIXI.Text[] = [];
-      let currentX = 0;
+    // Helper to get troop type and color from name
+    const parseTroopInfo = (name: string): { isKing: boolean; troopType: string; troopColor: number } => {
+      let isKing = false;
+      let troopName = name;
       
-      // Check for "König " prefix
       if (name.startsWith('König ')) {
-        const kingText = new PIXI.Text('König ', {
-          fontFamily: 'Arial',
-          fontSize: 18,
-          fontWeight: 'bold',
-          fill: 0xffffff,
-          stroke: 0x000000,
-          strokeThickness: 2,
-        });
-        kingText.anchor.set(0, 0.5);
-        parts.push(kingText);
-        currentX += kingText.width;
-        name = name.substring(6); // Remove "König " prefix
+        isKing = true;
+        troopName = name.substring(6);
       }
       
-      // Determine color based on troop type
-      let troopColor = 0xffffff;
-      if (name.includes('Kavallerie')) troopColor = 0x4169E1; // Blue
-      else if (name.includes('Bogenschütze')) troopColor = 0xDC143C; // Red
-      else if (name.includes('Infanterie')) troopColor = 0x228B22; // Green
+      let troopColor = TROOP_COLORS.infantry;
+      let troopType = 'infantry';
       
-      const troopText = new PIXI.Text(name, {
-        fontFamily: 'Arial',
-        fontSize: 18,
-        fontWeight: 'bold',
-        fill: troopColor,
-        stroke: 0x000000,
-        strokeThickness: 2,
-      });
-      troopText.anchor.set(0, 0.5);
-      troopText.position.set(currentX, 0);
-      parts.push(troopText);
+      if (troopName.includes('Kavallerie')) {
+        troopColor = TROOP_COLORS.cavalry;
+        troopType = 'cavalry';
+      } else if (troopName.includes('Bogenschütze')) {
+        troopColor = TROOP_COLORS.archer;
+        troopType = 'archer';
+      }
       
-      return parts;
+      return { isKing, troopType, troopColor };
     };
     
-    // Attacker container
+    const attackerInfo = parseTroopInfo(attackerName);
+    const defenderInfo = parseTroopInfo(defenderName);
+    
+    // ===== ATTACKER BADGE (left side) =====
     const attackerContainer = new PIXI.Container();
+    attackerContainer.position.set(-160, 0);
     
-    // Attacker color box
-    const attackerColorBox = new PIXI.Graphics();
-    attackerColorBox.beginFill(playerColors.attackerColor);
-    attackerColorBox.lineStyle(2, 0xffffff);
-    attackerColorBox.drawRoundedRect(-12, -12, 24, 24, 4);
-    attackerColorBox.endFill();
-    attackerContainer.addChild(attackerColorBox);
+    // Attacker color box with icon
+    const attackerBox = new PIXI.Graphics();
+    attackerBox.beginFill(0xffffff);
+    attackerBox.lineStyle(2, 0xcccccc, 1);
+    attackerBox.drawRoundedRect(-18, -18, 36, 36, 8);
+    attackerBox.endFill();
+    attackerContainer.addChild(attackerBox);
     
-    // "Angreifer" label in attacker color
-    const attackerRoleLabel = new PIXI.Text('Angreifer', {
+    const attackerIcon = new PIXI.Text('⚔️', { fontSize: 18 });
+    attackerIcon.anchor.set(0.5);
+    attackerContainer.addChild(attackerIcon);
+    
+    const attackerRoleLabel = new PIXI.Text('ANGREIFER', {
       fontFamily: 'Arial',
-      fontSize: 14,
+      fontSize: 11,
       fontWeight: 'bold',
-      fill: playerColors.attackerColor,
-      stroke: 0x000000,
-      strokeThickness: 2,
+      fill: 0xaaaaaa,
+      letterSpacing: 1,
     });
     attackerRoleLabel.anchor.set(0.5);
-    attackerRoleLabel.position.set(0, 28);
+    attackerRoleLabel.position.set(0, 32);
     attackerContainer.addChild(attackerRoleLabel);
     
-    // Attacker troop name (colorized)
-    const attackerTroopContainer = new PIXI.Container();
-    const attackerTroopParts = colorizeTroopName(attackerName);
-    let attackerTroopWidth = 0;
-    attackerTroopParts.forEach(part => {
-      part.position.x -= attackerTroopWidth;
-      attackerTroopWidth += part.width;
-      attackerTroopContainer.addChild(part);
-    });
-    attackerTroopContainer.position.set(0, 48);
-    attackerContainer.addChild(attackerTroopContainer);
+    const attTroopBadge = new PIXI.Graphics();
+    attTroopBadge.beginFill(attackerInfo.troopColor, 0.3);
+    attTroopBadge.lineStyle(1, attackerInfo.troopColor, 0.6);
+    attTroopBadge.drawRoundedRect(-35, -10, 70, 20, 10);
+    attTroopBadge.endFill();
+    attTroopBadge.position.set(0, 50);
+    attackerContainer.addChild(attTroopBadge);
     
-    attackerContainer.position.set(-140, 0);
+    const attTroopText = new PIXI.Text(this.getTroopDisplayName(attackerInfo.troopType), {
+      fontFamily: 'Arial',
+      fontSize: 10,
+      fontWeight: 'bold',
+      fill: attackerInfo.troopColor,
+    });
+    attTroopText.anchor.set(0.5);
+    attTroopText.position.set(0, 50);
+    attackerContainer.addChild(attTroopText);
+    
     container.addChild(attackerContainer);
 
-    // VS label
+    // ===== VS LABEL (center) =====
     const vsLabel = new PIXI.Text('VS', {
       fontFamily: 'Arial',
-      fontSize: 20,
+      fontSize: 16,
       fontWeight: 'bold',
       fill: 0xffd700,
       stroke: 0x000000,
-      strokeThickness: 3,
+      strokeThickness: 2,
     });
     vsLabel.anchor.set(0.5);
     vsLabel.position.set(0, -5);
     container.addChild(vsLabel);
 
-    // Defender container
+    // ===== DEFENDER BADGE (right side) =====
     const defenderContainer = new PIXI.Container();
+    defenderContainer.position.set(160, 0);
     
-    // Defender color box
-    const defenderColorBox = new PIXI.Graphics();
-    defenderColorBox.beginFill(playerColors.defenderColor);
-    defenderColorBox.lineStyle(2, 0xffffff);
-    defenderColorBox.drawRoundedRect(-12, -12, 24, 24, 4);
-    defenderColorBox.endFill();
-    defenderContainer.addChild(defenderColorBox);
+    const defenderBox = new PIXI.Graphics();
+    defenderBox.beginFill(0x2a2a2a);
+    defenderBox.lineStyle(2, 0x555555, 1);
+    defenderBox.drawRoundedRect(-18, -18, 36, 36, 8);
+    defenderBox.endFill();
+    defenderContainer.addChild(defenderBox);
     
-    // "Verteidiger" label in defender color
-    const defenderRoleLabel = new PIXI.Text('Verteidiger', {
+    const defenderIcon = new PIXI.Text('🛡️', { fontSize: 18 });
+    defenderIcon.anchor.set(0.5);
+    defenderContainer.addChild(defenderIcon);
+    
+    const defenderRoleLabel = new PIXI.Text('VERTEIDIGER', {
       fontFamily: 'Arial',
-      fontSize: 14,
+      fontSize: 11,
       fontWeight: 'bold',
-      fill: playerColors.defenderColor,
-      stroke: 0x000000,
-      strokeThickness: 2,
+      fill: 0xaaaaaa,
+      letterSpacing: 1,
     });
     defenderRoleLabel.anchor.set(0.5);
-    defenderRoleLabel.position.set(0, 28);
+    defenderRoleLabel.position.set(0, 32);
     defenderContainer.addChild(defenderRoleLabel);
     
-    // Defender troop name (colorized)
-    const defenderTroopContainer = new PIXI.Container();
-    const defenderTroopParts = colorizeTroopName(defenderName);
-    let defenderTroopWidth = 0;
-    defenderTroopParts.forEach(part => {
-      part.position.x -= defenderTroopWidth;
-      defenderTroopWidth += part.width;
-      defenderTroopContainer.addChild(part);
-    });
-    defenderTroopContainer.position.set(0, 48);
-    defenderContainer.addChild(defenderTroopContainer);
+    const defTroopBadge = new PIXI.Graphics();
+    defTroopBadge.beginFill(defenderInfo.troopColor, 0.3);
+    defTroopBadge.lineStyle(1, defenderInfo.troopColor, 0.6);
+    defTroopBadge.drawRoundedRect(-35, -10, 70, 20, 10);
+    defTroopBadge.endFill();
+    defTroopBadge.position.set(0, 50);
+    defenderContainer.addChild(defTroopBadge);
     
-    defenderContainer.position.set(140, 0);
+    const defTroopText = new PIXI.Text(this.getTroopDisplayName(defenderInfo.troopType), {
+      fontFamily: 'Arial',
+      fontSize: 10,
+      fontWeight: 'bold',
+      fill: defenderInfo.troopColor,
+    });
+    defTroopText.anchor.set(0.5);
+    defTroopText.position.set(0, 50);
+    defenderContainer.addChild(defTroopText);
+    
     container.addChild(defenderContainer);
 
     container.position.set(centerX, y);
     this.container.addChild(container);
   }
+  
+  /**
+   * Get German display name for troop type
+   */
+  private getTroopDisplayName(troopType: string): string {
+    switch (troopType) {
+      case 'cavalry': return 'Kavallerie';
+      case 'archer': return 'Bogenschütze';
+      case 'infantry': return 'Infanterie';
+      default: return troopType;
+    }
+  }
 
   /**
-   * Animate dice rolling - vertical layout per player
+   * Create the complete dice UI and start rolling animation
+   * Shows ALL dice from both sides, even if one has more than the other
    */
-  private animateDiceRolling(
+  private createDiceUI(
     centerX: number,
     centerY: number,
     combatResult: CombatResult,
-    playerColors: PlayerColors,
-    onComplete: () => void
+    playerColors: PlayerColors
   ): void {
     const attackerRolls = combatResult.attackerRolls;
     const defenderRolls = combatResult.defenderRolls;
-    const maxDiceCount = Math.max(attackerRolls.length, defenderRolls.length);
+    const maxDice = Math.max(attackerRolls.length, defenderRolls.length);
     
-    // Create rolling dice containers
-    const attackerDice: PIXI.Container[] = [];
-    const defenderDice: PIXI.Container[] = [];
-    
-    // Calculate column positions (attacker on left, defender on right)
-    const columnSpacing = 120;
-    const attackerX = centerX - columnSpacing / 2;
-    const defenderX = centerX + columnSpacing / 2;
-    
-    // Calculate vertical spacing and start position
-    const diceSpacing = this.config.diceSize + this.config.diceSpacing + 8;
-    const totalHeight = maxDiceCount * diceSpacing;
-    const startY = centerY - totalHeight / 2 + diceSpacing / 2;
-    
-    // Create attacker dice in vertical column (under each other)
-    for (let i = 0; i < attackerRolls.length; i++) {
-      const diceY = startY + i * diceSpacing;
-      const dice = this.createRollingDiceWithColor(playerColors.attackerColor);
-      dice.position.set(attackerX, diceY);
-      this.container.addChild(dice);
-      attackerDice.push(dice);
+    if (maxDice === 0) {
+      this.showResults(combatResult, centerX, centerY + 100, playerColors);
+      return;
     }
     
-    // Create defender dice in vertical column (under each other)
-    for (let i = 0; i < defenderRolls.length; i++) {
-      const diceY = startY + i * diceSpacing;
-      const dice = this.createRollingDiceWithColor(playerColors.defenderColor);
-      dice.position.set(defenderX, diceY);
-      this.container.addChild(dice);
-      defenderDice.push(dice);
+    // Row settings - increased height to accommodate loss markers below dice
+    const rowHeight = 90;
+    const diceXSpacing = this.config.pairSpacing;
+    
+    // Calculate positions
+    const totalHeight = maxDice * rowHeight;
+    const firstRowY = centerY - totalHeight / 2 + rowHeight / 2;
+    
+    // Create rows container
+    const rowsContainer = new PIXI.Container();
+    this.diceRows = [];
+    
+    for (let i = 0; i < maxDice; i++) {
+      const rowY = firstRowY + i * rowHeight;
+      const attackerDiceX = centerX - diceXSpacing / 2;
+      const defenderDiceX = centerX + diceXSpacing / 2;
+      
+      // Get rolls for this row (if available)
+      const attackerRoll = attackerRolls[i];
+      const defenderRoll = defenderRolls[i];
+      const hasPair = attackerRoll && defenderRoll;
+      
+      // Create containers for attacker and defender dice
+      const attackerDice = new PIXI.Container();
+      attackerDice.position.set(attackerDiceX, rowY);
+      
+      const defenderDice = new PIXI.Container();
+      defenderDice.position.set(defenderDiceX, rowY);
+      
+      // Add initial dice graphics (only if roll exists)
+      if (attackerRoll) {
+        this.updateDiceDisplay(attackerDice, 1, playerColors.attackerColor, false, 0, false);
+        rowsContainer.addChild(attackerDice);
+      }
+      
+      if (defenderRoll) {
+        this.updateDiceDisplay(defenderDice, 1, playerColors.defenderColor, false, 0, false);
+        rowsContainer.addChild(defenderDice);
+      }
+      
+      // VS label only if both sides have dice in this row
+      if (hasPair) {
+        const vsText = new PIXI.Text('VS', {
+          fontFamily: 'Arial',
+          fontSize: 14,
+          fontWeight: 'bold',
+          fill: 0x666666,
+        });
+        vsText.anchor.set(0.5);
+        vsText.position.set(centerX, rowY);
+        rowsContainer.addChild(vsText);
+      }
+      
+      this.diceRows.push({
+        attackerDice,
+        defenderDice,
+        attackerRoll: attackerRoll || null as any,
+        defenderRoll: defenderRoll || null as any,
+        rowY,
+      });
     }
+    
+    this.container.addChild(rowsContainer);
+    
+    // Start rolling animation
+    this.animateRolling(playerColors, combatResult, centerX, centerY);
+  }
 
-    // Animate rolling
+  /**
+   * Update dice display with value and optional badges
+   */
+  private updateDiceDisplay(
+    container: PIXI.Container,
+    value: number,
+    playerColor: number,
+    showBonus: boolean,
+    bonusValue: number,
+    hasKingBonus: boolean
+  ): void {
+    container.removeChildren();
+    
+    // Create the dice
+    const dice = this.diceRenderer.createDice(value, playerColor);
+    container.addChild(dice);
+    
+    // Add bonus badge if needed
+    if (showBonus && bonusValue > 0) {
+      const badge = this.createBonusBadge(bonusValue, hasKingBonus);
+      badge.position.set(this.config.diceSize / 2 - 5, -this.config.diceSize / 2 + 5);
+      container.addChild(badge);
+    }
+    
+    // Add king crown if needed
+    if (hasKingBonus) {
+      const crown = new PIXI.Text('👑', { fontSize: 14 });
+      crown.anchor.set(0.5);
+      crown.position.set(0, -this.config.diceSize / 2 - 12);
+      container.addChild(crown);
+    }
+  }
+
+  /**
+   * Create a bonus badge
+   */
+  private createBonusBadge(bonusValue: number, hasKing: boolean): PIXI.Container {
+    const container = new PIXI.Container();
+    
+    // Badge background
+    const badgeBg = new PIXI.Graphics();
+    badgeBg.beginFill(0xffd700);
+    badgeBg.lineStyle(1, 0xffaa00, 1);
+    badgeBg.drawRoundedRect(-15, -10, 30, 20, 10);
+    badgeBg.endFill();
+    
+    // Highlight
+    const badgeHighlight = new PIXI.Graphics();
+    badgeHighlight.beginFill(0xffec8b, 0.6);
+    badgeHighlight.drawRoundedRect(-13, -8, 26, 8, 6);
+    badgeHighlight.endFill();
+    
+    // Text
+    let text = `+${bonusValue}`;
+    if (hasKing) {
+      text = `+${bonusValue}👑`;
+    }
+    
+    const badgeText = new PIXI.Text(text, {
+      fontFamily: 'Arial',
+      fontSize: 10,
+      fontWeight: 'bold',
+      fill: 0x000000,
+    });
+    badgeText.anchor.set(0.5);
+    
+    container.addChild(badgeBg);
+    container.addChild(badgeHighlight);
+    container.addChild(badgeText);
+    
+    return container;
+  }
+
+  /**
+   * Animate dice rolling
+   */
+  private animateRolling(
+    playerColors: PlayerColors,
+    combatResult: CombatResult,
+    centerX: number,
+    centerY: number
+  ): void {
     let rollCount = 0;
     const maxRolls = this.config.animationDuration / this.config.rollInterval;
     
     const rollInterval = setInterval(() => {
       rollCount++;
       
-      // Update dice with random values during roll
-      attackerDice.forEach((dice) => {
-        const randomValue = Math.floor(Math.random() * 6) + 1;
-        const playerColor = (dice as any).playerColor;
-        this.diceRenderer.updateDiceValue(dice, randomValue, playerColor);
+      // Update all dice with random values during roll
+      this.diceRows.forEach(({ attackerDice, defenderDice, attackerRoll, defenderRoll }) => {
+        // Only animate attacker dice if it exists
+        if (attackerRoll) {
+          const attRandom = Math.floor(Math.random() * 6) + 1;
+          this.updateDiceDisplay(attackerDice, attRandom, playerColors.attackerColor, false, 0, false);
+        }
+        // Only animate defender dice if it exists
+        if (defenderRoll) {
+          const defRandom = Math.floor(Math.random() * 6) + 1;
+          this.updateDiceDisplay(defenderDice, defRandom, playerColors.defenderColor, false, 0, false);
+        }
       });
       
-      defenderDice.forEach((dice) => {
-        const randomValue = Math.floor(Math.random() * 6) + 1;
-        const playerColor = (dice as any).playerColor;
-        this.diceRenderer.updateDiceValue(dice, randomValue, playerColor);
-      });
-      
-      // Final values
+      // Show final values
       if (rollCount >= maxRolls) {
         clearInterval(rollInterval);
         
         // Show final dice values
-        attackerDice.forEach((dice, i) => {
-          const roll = attackerRolls[i];
-          const playerColor = (dice as any).playerColor;
-          this.diceRenderer.updateDiceValue(dice, roll.naturalValue, playerColor);
+        this.diceRows.forEach(({ attackerDice, defenderDice, attackerRoll, defenderRoll }) => {
+          // Only update attacker dice if it exists
+          if (attackerRoll) {
+            const hasAttKing = attackerRoll.kingBonus > 0;
+            this.updateDiceDisplay(
+              attackerDice,
+              attackerRoll.naturalValue,
+              playerColors.attackerColor,
+              false,
+              0,
+              hasAttKing
+            );
+          }
+          // Only update defender dice if it exists
+          if (defenderRoll) {
+            const hasDefKing = defenderRoll.kingBonus > 0;
+            this.updateDiceDisplay(
+              defenderDice,
+              defenderRoll.naturalValue,
+              playerColors.defenderColor,
+              false,
+              0,
+              hasDefKing
+            );
+          }
         });
         
-        defenderDice.forEach((dice, i) => {
-          const roll = defenderRolls[i];
-          const playerColor = (dice as any).playerColor;
-          this.diceRenderer.updateDiceValue(dice, roll.naturalValue, playerColor);
-        });
-        
-        onComplete();
+        // After a short delay, show results (bonus badges and loss markers)
+        setTimeout(() => {
+          this.showFinalElements(playerColors);
+          this.showResults(combatResult, centerX, centerY + 140, playerColors);
+        }, this.config.resultDelay);
       }
     }, this.config.rollInterval);
   }
 
   /**
-   * Create a rolling dice with colored border
+   * Show final elements: bonus badges and loss markers
+   * Würfel stay visible, only add these elements
    */
-  private createRollingDiceWithColor(playerColor: number): PIXI.Container {
-    const container = new PIXI.Container();
-    
-    // Store player color for later updates during animation
-    (container as any).playerColor = playerColor;
-    
-    // Create colored border/background
-    const borderSize = this.config.diceSize + 8;
-    const border = new PIXI.Graphics();
-    border.beginFill(playerColor, 0.3);
-    border.lineStyle(3, playerColor);
-    border.drawRoundedRect(-borderSize / 2, -borderSize / 2, borderSize, borderSize, 8);
-    border.endFill();
-    container.addChild(border);
-    
-    // Create dice with random initial value and player color
-    const dice = this.diceRenderer.createDice(Math.floor(Math.random() * 6) + 1, playerColor);
-    container.addChild(dice);
-    
-    return container;
+  private showFinalElements(playerColors: PlayerColors): void {
+    this.diceRows.forEach(({ attackerDice, defenderDice, attackerRoll, defenderRoll }, index) => {
+      // Check if this is a complete pair (both sides have dice)
+      const hasPair = attackerRoll && defenderRoll;
+      
+      // Update attacker dice with bonus badge (if exists)
+      if (attackerRoll) {
+        const hasAttKing = attackerRoll.kingBonus > 0;
+        this.updateDiceDisplay(
+          attackerDice,
+          attackerRoll.naturalValue,
+          playerColors.attackerColor,
+          true, // show bonus
+          attackerRoll.bonusPoints + attackerRoll.kingBonus,
+          hasAttKing
+        );
+      }
+      
+      // Update defender dice with bonus badge (if exists)
+      if (defenderRoll) {
+        const hasDefKing = defenderRoll.kingBonus > 0;
+        this.updateDiceDisplay(
+          defenderDice,
+          defenderRoll.naturalValue,
+          playerColors.defenderColor,
+          true, // show bonus
+          defenderRoll.bonusPoints + defenderRoll.kingBonus,
+          hasDefKing
+        );
+      }
+      
+      // Add loss marker for loser only if both dice exist (it's a pair comparison)
+      if (hasPair) {
+        const attackerTotal = attackerRoll.effectiveValue;
+        const defenderTotal = defenderRoll.effectiveValue;
+        const attackerWins = attackerTotal > defenderTotal;
+        
+        if (!attackerWins) {
+          // Attacker loses
+          const lossMarker = new PIXI.Text('❌', {
+            fontFamily: 'Arial',
+            fontSize: 20,
+            fontWeight: 'bold',
+          });
+          lossMarker.anchor.set(0.5);
+          lossMarker.position.set(0, this.config.diceSize / 2 + 15);
+          attackerDice.addChild(lossMarker);
+        } else {
+          // Defender loses
+          const lossMarker = new PIXI.Text('❌', {
+            fontFamily: 'Arial',
+            fontSize: 20,
+            fontWeight: 'bold',
+          });
+          lossMarker.anchor.set(0.5);
+          lossMarker.position.set(0, this.config.diceSize / 2 + 15);
+          defenderDice.addChild(lossMarker);
+        }
+      }
+    });
   }
 
   /**
-   * Show final results with bonuses, losses, and strength points
-   * New layout: Table format with Würfel | Bonuspunkte | Gesamt for both sides
+   * Show combat results at bottom
    */
-  private showFinalResults(
-    centerX: number,
-    centerY: number,
+  private showResults(
     combatResult: CombatResult,
+    centerX: number,
+    startY: number,
     playerColors: PlayerColors
   ): void {
-    // Calculate total strength for each side
-    const attackerTotalStrength = combatResult.attackerRolls.reduce(
-      (sum, roll) => sum + roll.effectiveValue, 0
-    );
-    const defenderTotalStrength = combatResult.defenderRolls.reduce(
-      (sum, roll) => sum + roll.effectiveValue, 0
-    );
-    
-    // Show dice overview table
-    this.showDiceOverviewTable(centerX, centerY - 40, combatResult, playerColors);
-    
-    // Show casualties summary
     const attackerLosses = combatResult.attackerCasualties.length;
     const defenderLosses = combatResult.defenderCasualties.length;
     
-    // Result summary box
-    const summaryY = centerY + 180;
+    // Casualties row - positioned higher to avoid overlap
+    const casualtiesY = startY;
+    const casualtiesContainer = new PIXI.Container();
+    casualtiesContainer.position.set(centerX, casualtiesY);
     
-    let resultText = '';
-    let resultColor = 0xffffff;
-    
-    if (attackerLosses === 0 && defenderLosses === 0) {
-      resultText = '🛡️ UNENTSCHIEDEN - Keine Verluste! 🛡️';
-      resultColor = 0xaaaaaa;
-    } else if (defenderLosses > attackerLosses) {
-      resultText = `⚔️ ANGREIFER GEWINNT! ${defenderLosses} Verluste beim Verteidiger`;
-      resultColor = playerColors.attackerColor;
-    } else if (attackerLosses > defenderLosses) {
-      resultText = `🛡️ VERTEIDIGER GEWINNT! ${attackerLosses} Verluste beim Angreifer`;
-      resultColor = playerColors.defenderColor;
-    } else {
-      resultText = `⚔️ GLEICHSTAND! ${attackerLosses} Verluste auf beiden Seiten`;
-      resultColor = 0xffd700;
-    }
-    
-    // Show result text
-    const resultLabel = new PIXI.Text(resultText, {
-      fontFamily: 'Arial',
-      fontSize: 22,
-      fontWeight: 'bold',
-      fill: resultColor,
-      stroke: 0x000000,
-      strokeThickness: 4,
-      align: 'center',
-    });
-    resultLabel.anchor.set(0.5);
-    resultLabel.position.set(centerX, summaryY);
-    this.container.addChild(resultLabel);
-
-    // Show strength comparison
-    const strengthText = `Gesamtstärke: Angreifer ${attackerTotalStrength} vs ${defenderTotalStrength} Verteidiger`;
-    const strengthLabel = new PIXI.Text(strengthText, {
-      fontFamily: 'Arial',
-      fontSize: 14,
-      fill: 0xdddddd,
-      align: 'center',
-    });
-    strengthLabel.anchor.set(0.5);
-    strengthLabel.position.set(centerX, summaryY + 35);
-    this.container.addChild(strengthLabel);
-
-    // Show casualty details
-    if (attackerLosses > 0 || defenderLosses > 0) {
-      const casualtyText = this.createCasualtyText(combatResult);
-      const casualtyLabel = new PIXI.Text(casualtyText, {
+    // Attacker casualties
+    if (attackerLosses > 0) {
+      const attCasualtyBox = new PIXI.Graphics();
+      attCasualtyBox.beginFill(0xe74c3c, 0.15);
+      attCasualtyBox.lineStyle(1, 0xe74c3c, 0.3);
+      attCasualtyBox.drawRoundedRect(-70, -15, 140, 30, 8);
+      attCasualtyBox.endFill();
+      attCasualtyBox.position.set(-80, 0);
+      casualtiesContainer.addChild(attCasualtyBox);
+      
+      const attCasualtyText = new PIXI.Text(`💀 ${attackerLosses} Verluste`, {
         fontFamily: 'Arial',
         fontSize: 14,
-        fill: 0xff6b6b,
-        align: 'center',
-        lineHeight: 18,
+        fontWeight: 'bold',
+        fill: 0xe74c3c,
       });
-      casualtyLabel.anchor.set(0.5);
-      casualtyLabel.position.set(centerX, summaryY + 65);
-      this.container.addChild(casualtyLabel);
+      attCasualtyText.anchor.set(0.5);
+      attCasualtyText.position.set(-80, 0);
+      casualtiesContainer.addChild(attCasualtyText);
     }
+    
+    // Defender casualties
+    if (defenderLosses > 0) {
+      const defCasualtyBox = new PIXI.Graphics();
+      defCasualtyBox.beginFill(0xe74c3c, 0.15);
+      defCasualtyBox.lineStyle(1, 0xe74c3c, 0.3);
+      defCasualtyBox.drawRoundedRect(-70, -15, 140, 30, 8);
+      defCasualtyBox.endFill();
+      defCasualtyBox.position.set(80, 0);
+      casualtiesContainer.addChild(defCasualtyBox);
+      
+      const defCasualtyText = new PIXI.Text(`💀 ${defenderLosses} Verluste`, {
+        fontFamily: 'Arial',
+        fontSize: 14,
+        fontWeight: 'bold',
+        fill: 0xe74c3c,
+      });
+      defCasualtyText.anchor.set(0.5);
+      defCasualtyText.position.set(80, 0);
+      casualtiesContainer.addChild(defCasualtyText);
+    }
+    
+    this.container.addChild(casualtiesContainer);
 
-    // Add "Click to continue" hint
+    // Click to continue hint
     const hint = new PIXI.Text('KLICKEN ZUM FORTFAHREN', {
       fontFamily: 'Arial',
       fontSize: 16,
@@ -504,7 +684,6 @@ export class CombatDiceAnimation {
       fill: 0xffd700,
       stroke: 0x000000,
       strokeThickness: 2,
-      align: 'center',
     });
     hint.anchor.set(0.5);
     hint.position.set(centerX, this.app.screen.height - 50);
@@ -522,449 +701,11 @@ export class CombatDiceAnimation {
     };
     fadeInHint();
 
-    // Make entire container clickable to close
+    // Make clickable
     this.container.eventMode = 'static';
     this.container.hitArea = new PIXI.Rectangle(0, 0, this.app.screen.width, this.app.screen.height);
     this.container.cursor = 'pointer';
     this.container.once('pointerdown', () => this.close());
-  }
-
-  /**
-   * Show dice overview with combined dice and table
-   * Structure per row: Würfel Bonus Gesamt X vs X Gesamt Bonus Würfel
-   */
-  private showDiceOverviewTable(
-    centerX: number,
-    startY: number,
-    combatResult: CombatResult,
-    playerColors: PlayerColors
-  ): void {
-    const tableContainer = new PIXI.Container();
-    
-    // Column widths and spacing
-    const diceColWidth = 50;
-    const bonusColWidth = 60;
-    const totalColWidth = 55;
-    const lossColWidth = 30;
-    const vsWidth = 40;
-    const colGap = 4;
-    
-    // Calculate center and side positions
-    const leftSideX = centerX - vsWidth / 2 - lossColWidth - totalColWidth - bonusColWidth - diceColWidth - colGap * 3;
-    const rightSideX = centerX + vsWidth / 2 + lossColWidth;
-    
-    // Header row
-    const headerY = startY;
-    const headerStyle = new PIXI.TextStyle({
-      fontFamily: 'Arial',
-      fontSize: 11,
-      fontWeight: 'bold',
-      fill: 0xaaaaaa,
-    });
-    
-    // Attacker headers (left side, reading left to right)
-    let currentX = leftSideX;
-    const attDiceHeader = new PIXI.Text('Würfel', headerStyle);
-    attDiceHeader.anchor.set(0.5, 0);
-    attDiceHeader.position.set(currentX + diceColWidth / 2, headerY);
-    tableContainer.addChild(attDiceHeader);
-    currentX += diceColWidth + colGap;
-    
-    const attBonusHeader = new PIXI.Text('Bonus', headerStyle);
-    attBonusHeader.anchor.set(0.5, 0);
-    attBonusHeader.position.set(currentX + bonusColWidth / 2, headerY);
-    tableContainer.addChild(attBonusHeader);
-    currentX += bonusColWidth + colGap;
-    
-    const attTotalHeader = new PIXI.Text('Gesamt', headerStyle);
-    attTotalHeader.anchor.set(0.5, 0);
-    attTotalHeader.position.set(currentX + totalColWidth / 2, headerY);
-    tableContainer.addChild(attTotalHeader);
-    currentX += totalColWidth + colGap;
-    
-    // Loss column header (empty)
-    currentX += lossColWidth + colGap;
-    
-    // VS header
-    const vsHeader = new PIXI.Text('VS', {
-      fontFamily: 'Arial',
-      fontSize: 12,
-      fontWeight: 'bold',
-      fill: 0xffd700,
-    });
-    vsHeader.anchor.set(0.5, 0);
-    vsHeader.position.set(centerX, headerY + 2);
-    tableContainer.addChild(vsHeader);
-    
-    // Defender headers (right side, reading right to left)
-    currentX = rightSideX;
-    const defTotalHeader = new PIXI.Text('Gesamt', headerStyle);
-    defTotalHeader.anchor.set(0.5, 0);
-    defTotalHeader.position.set(currentX + totalColWidth / 2, headerY);
-    tableContainer.addChild(defTotalHeader);
-    currentX += totalColWidth + colGap;
-    
-    const defBonusHeader = new PIXI.Text('Bonus', headerStyle);
-    defBonusHeader.anchor.set(0.5, 0);
-    defBonusHeader.position.set(currentX + bonusColWidth / 2, headerY);
-    tableContainer.addChild(defBonusHeader);
-    currentX += bonusColWidth + colGap;
-    
-    const defDiceHeader = new PIXI.Text('Würfel', headerStyle);
-    defDiceHeader.anchor.set(0.5, 0);
-    defDiceHeader.position.set(currentX + diceColWidth / 2, headerY);
-    tableContainer.addChild(defDiceHeader);
-    
-    // Data rows - iterate through pairs
-    const rowHeight = 36;
-    const dataStartY = headerY + 22;
-    
-    // Sort pairs by the higher effective value
-    const sortedPairs = [...combatResult.pairs].sort((a, b) => {
-      const maxA = Math.max(a.attackerDie.effectiveValue, a.defenderDie.effectiveValue);
-      const maxB = Math.max(b.attackerDie.effectiveValue, b.defenderDie.effectiveValue);
-      return maxB - maxA;
-    });
-    
-    sortedPairs.forEach((pair, i) => {
-      const rowY = dataStartY + i * rowHeight;
-      const attLost = !pair.attackerWins;
-      const defLost = pair.attackerWins;
-      
-      // Attacker row (left side)
-      currentX = leftSideX;
-      
-      // Würfel value
-      const attDiceValue = new PIXI.Text(pair.attackerDie.naturalValue.toString(), {
-        fontFamily: 'Arial',
-        fontSize: 16,
-        fontWeight: 'bold',
-        fill: attLost ? 0xff6666 : 0xffffff,
-        stroke: 0x000000,
-        strokeThickness: 2,
-      });
-      attDiceValue.anchor.set(0.5);
-      attDiceValue.position.set(currentX + diceColWidth / 2, rowY);
-      tableContainer.addChild(attDiceValue);
-      currentX += diceColWidth + colGap;
-      
-      // Bonus
-      let attBonusText = '';
-      if (pair.attackerDie.bonusPoints > 0) attBonusText += `+${pair.attackerDie.bonusPoints}⚔️`;
-      if (pair.attackerDie.kingBonus > 0) attBonusText += (attBonusText ? '' : '') + '👑';
-      if (!attBonusText) attBonusText = '-';
-      
-      const attBonusValue = new PIXI.Text(attBonusText, {
-        fontFamily: 'Arial',
-        fontSize: 10,
-        fill: pair.attackerDie.bonusPoints > 0 || pair.attackerDie.kingBonus > 0 ? 0xffeb3b : 0x666666,
-        align: 'center',
-      });
-      attBonusValue.anchor.set(0.5);
-      attBonusValue.position.set(currentX + bonusColWidth / 2, rowY);
-      tableContainer.addChild(attBonusValue);
-      currentX += bonusColWidth + colGap;
-      
-      // Gesamt
-      const attTotalValue = new PIXI.Text(pair.attackerDie.effectiveValue.toString(), {
-        fontFamily: 'Arial',
-        fontSize: 16,
-        fontWeight: 'bold',
-        fill: attLost ? 0xff6666 : playerColors.attackerColor,
-        stroke: 0x000000,
-        strokeThickness: 2,
-      });
-      attTotalValue.anchor.set(0.5);
-      attTotalValue.position.set(currentX + totalColWidth / 2, rowY);
-      tableContainer.addChild(attTotalValue);
-      currentX += totalColWidth + colGap;
-      
-      // X bei Verlust
-      if (attLost) {
-        const attLossMarker = new PIXI.Text('❌', {
-          fontFamily: 'Arial',
-          fontSize: 12,
-        });
-        attLossMarker.anchor.set(0.5);
-        attLossMarker.position.set(currentX + lossColWidth / 2, rowY);
-        tableContainer.addChild(attLossMarker);
-      }
-      currentX += lossColWidth + colGap;
-      
-      // VS indicator
-      const vsSymbol = pair.attackerWins ? '>' : '<';
-      const vsColor = pair.attackerWins ? playerColors.attackerColor : playerColors.defenderColor;
-      const vsIndicator = new PIXI.Text(vsSymbol, {
-        fontFamily: 'Arial',
-        fontSize: 14,
-        fontWeight: 'bold',
-        fill: vsColor,
-      });
-      vsIndicator.anchor.set(0.5);
-      vsIndicator.position.set(centerX, rowY);
-      tableContainer.addChild(vsIndicator);
-      
-      // Defender row (right side, mirrored)
-      currentX = rightSideX;
-      
-      // X bei Verlust
-      if (defLost) {
-        const defLossMarker = new PIXI.Text('❌', {
-          fontFamily: 'Arial',
-          fontSize: 12,
-        });
-        defLossMarker.anchor.set(0.5);
-        defLossMarker.position.set(currentX + lossColWidth / 2, rowY);
-        tableContainer.addChild(defLossMarker);
-      }
-      currentX += lossColWidth + colGap;
-      
-      // Gesamt
-      const defTotalValue = new PIXI.Text(pair.defenderDie.effectiveValue.toString(), {
-        fontFamily: 'Arial',
-        fontSize: 16,
-        fontWeight: 'bold',
-        fill: defLost ? 0xff6666 : playerColors.defenderColor,
-        stroke: 0x000000,
-        strokeThickness: 2,
-      });
-      defTotalValue.anchor.set(0.5);
-      defTotalValue.position.set(currentX + totalColWidth / 2, rowY);
-      tableContainer.addChild(defTotalValue);
-      currentX += totalColWidth + colGap;
-      
-      // Bonus
-      let defBonusText = '';
-      if (pair.defenderDie.bonusPoints > 0) defBonusText += `+${pair.defenderDie.bonusPoints}⚔️`;
-      if (pair.defenderDie.kingBonus > 0) defBonusText += (defBonusText ? '' : '') + '👑';
-      if (!defBonusText) defBonusText = '-';
-      
-      const defBonusValue = new PIXI.Text(defBonusText, {
-        fontFamily: 'Arial',
-        fontSize: 10,
-        fill: pair.defenderDie.bonusPoints > 0 || pair.defenderDie.kingBonus > 0 ? 0xffeb3b : 0x666666,
-        align: 'center',
-      });
-      defBonusValue.anchor.set(0.5);
-      defBonusValue.position.set(currentX + bonusColWidth / 2, rowY);
-      tableContainer.addChild(defBonusValue);
-      currentX += bonusColWidth + colGap;
-      
-      // Würfel value
-      const defDiceValue = new PIXI.Text(pair.defenderDie.naturalValue.toString(), {
-        fontFamily: 'Arial',
-        fontSize: 16,
-        fontWeight: 'bold',
-        fill: defLost ? 0xff6666 : 0xffffff,
-        stroke: 0x000000,
-        strokeThickness: 2,
-      });
-      defDiceValue.anchor.set(0.5);
-      defDiceValue.position.set(currentX + diceColWidth / 2, rowY);
-      tableContainer.addChild(defDiceValue);
-    });
-    
-    // Summenzeile entfernt - keine Total row mehr
-    
-    this.container.addChild(tableContainer);
-  }
-
-  /**
-   * Show pair comparisons with strength points and loss indicators
-   */
-  private showPairComparisons(
-    centerX: number,
-    startY: number,
-    combatResult: CombatResult,
-    playerColors: PlayerColors
-  ): void {
-    const pairCount = combatResult.pairs.length;
-    if (pairCount === 0) return;
-    
-    // Calculate column positions (attacker on left, defender on right)
-    const columnSpacing = 140;
-    const attackerX = centerX - columnSpacing / 2;
-    const defenderX = centerX + columnSpacing / 2;
-    
-    // Calculate vertical spacing and start position (increased spacing for better visibility)
-    const diceSpacing = this.config.diceSize + 70; // Increased from 50 to 70
-    const totalHeight = pairCount * diceSpacing;
-    const diceStartY = startY - totalHeight / 2 + diceSpacing / 2 + 20; // Added extra top margin (+20)
-    
-    // Sort pairs by highest dice value (descending) - highest values at top
-    const sortedPairs = [...combatResult.pairs].sort((a, b) => {
-      const maxA = Math.max(a.attackerDie.effectiveValue, a.defenderDie.effectiveValue);
-      const maxB = Math.max(b.attackerDie.effectiveValue, b.defenderDie.effectiveValue);
-      return maxB - maxA; // Descending order
-    });
-    
-    sortedPairs.forEach((pair, i) => {
-      const diceY = diceStartY + i * diceSpacing;
-      
-      // Attacker die (left column)
-      const attackerWins = pair.attackerWins;
-      const attackerLost = !attackerWins;
-      
-      this.createResultDie(
-        attackerX,
-        diceY,
-        pair.attackerDie,
-        playerColors.attackerColor,
-        attackerLost,
-        'attacker'
-      );
-      
-      // VS indicator (center)
-      const vsSymbol = attackerWins ? '>' : '<';
-      const vsColor = attackerWins ? playerColors.attackerColor : playerColors.defenderColor;
-      const vsLabel = new PIXI.Text(vsSymbol, {
-        fontFamily: 'Arial',
-        fontSize: 20,
-        fontWeight: 'bold',
-        fill: vsColor,
-        stroke: 0x000000,
-        strokeThickness: 2,
-      });
-      vsLabel.anchor.set(0.5);
-      vsLabel.position.set(centerX, diceY);
-      this.container.addChild(vsLabel);
-      
-      // Defender die (right column)
-      const defenderLost = attackerWins;
-      
-      this.createResultDie(
-        defenderX,
-        diceY,
-        pair.defenderDie,
-        playerColors.defenderColor,
-        defenderLost,
-        'defender'
-      );
-    });
-  }
-
-  /**
-   * Create a result die with all information
-   */
-  private createResultDie(
-    x: number,
-    y: number,
-    dieRoll: DieRoll,
-    playerColor: number,
-    isLost: boolean,
-    side: 'attacker' | 'defender'
-  ): void {
-    const container = new PIXI.Container();
-    container.position.set(x, y);
-    
-    // Background with player color
-    const bgSize = this.config.diceSize + 12;
-    const bg = new PIXI.Graphics();
-    
-    if (isLost) {
-      // Red X background for lost dice
-      bg.beginFill(0x330000, 0.8);
-      bg.lineStyle(3, 0xff0000);
-    } else {
-      // Normal player color background
-      bg.beginFill(playerColor, 0.2);
-      bg.lineStyle(3, playerColor);
-    }
-    
-    bg.drawRoundedRect(-bgSize / 2, -bgSize / 2, bgSize, bgSize, 8);
-    bg.endFill();
-    container.addChild(bg);
-    
-    // Add red X for lost dice
-    if (isLost) {
-      const cross = new PIXI.Graphics();
-      cross.lineStyle(4, 0xff0000, 0.8);
-      const offset = bgSize / 2 - 6;
-      cross.moveTo(-offset, -offset);
-      cross.lineTo(offset, offset);
-      cross.moveTo(offset, -offset);
-      cross.lineTo(-offset, offset);
-      container.addChild(cross);
-    }
-    
-    // Dice value (natural) - pass player color for proper coloring
-    const dice = this.diceRenderer.createDice(dieRoll.naturalValue, playerColor);
-    container.addChild(dice);
-    
-    // Effective value (large)
-    const effectiveValue = dieRoll.effectiveValue;
-    const valueLabel = new PIXI.Text(effectiveValue.toString(), {
-      fontFamily: 'Arial',
-      fontSize: 18,
-      fontWeight: 'bold',
-      fill: isLost ? 0xff6666 : 0xffffff,
-      stroke: 0x000000,
-      strokeThickness: 3,
-    });
-    valueLabel.anchor.set(0.5);
-    valueLabel.position.set(0, this.config.diceSize / 2 + 15);
-    container.addChild(valueLabel);
-    
-    // Bonus breakdown below
-    let bonusText = '';
-    if (dieRoll.bonusPoints > 0) {
-      bonusText += `+${dieRoll.bonusPoints}⚔️`;
-    }
-    if (dieRoll.kingBonus > 0) {
-      bonusText += bonusText ? ' ' : '';
-      bonusText += '+👑';
-    }
-    
-    if (bonusText) {
-      const bonusLabel = new PIXI.Text(bonusText, {
-        fontFamily: 'Arial',
-        fontSize: 11,
-        fill: 0xffeb3b,
-        stroke: 0x000000,
-        strokeThickness: 2,
-      });
-      bonusLabel.anchor.set(0.5);
-      bonusLabel.position.set(0, this.config.diceSize / 2 + 32);
-      container.addChild(bonusLabel);
-    }
-    
-    // "VERLOREN" label for lost dice
-    if (isLost) {
-      const lostLabel = new PIXI.Text('❌', {
-        fontFamily: 'Arial',
-        fontSize: 24,
-      });
-      lostLabel.anchor.set(0.5);
-      lostLabel.position.set(0, 0);
-      container.addChild(lostLabel);
-    }
-    
-    this.container.addChild(container);
-  }
-
-  /**
-   * Create casualty summary text
-   */
-  private createCasualtyText(combatResult: CombatResult): string {
-    const lines: string[] = [];
-    
-    if (combatResult.attackerCasualties.length > 0) {
-      lines.push(`Angreifer verliert: ${combatResult.attackerCasualties.length} Unit${combatResult.attackerCasualties.length > 1 ? 's' : ''}`);
-    }
-    
-    if (combatResult.defenderCasualties.length > 0) {
-      lines.push(`Verteidiger verliert: ${combatResult.defenderCasualties.length} Unit${combatResult.defenderCasualties.length > 1 ? 's' : ''}`);
-    }
-    
-    if (combatResult.attackerCommanderDefeated) {
-      lines.push('⚔️ Angreifer besiegt!');
-    }
-    
-    if (combatResult.defenderCommanderDefeated) {
-      lines.push('🛡️ Verteidiger besiegt!');
-    }
-    
-    return lines.join('\n');
   }
 
   /**
@@ -976,8 +717,9 @@ export class CombatDiceAnimation {
     this.isPlaying = false;
     this.container.visible = false;
     this.container.removeChildren();
+    this.diceRows = [];
 
-    // Unit info panel wieder anzeigen (wird in main.ts basierend auf Auswahl aktualisiert)
+    // Unit info panel wieder anzeigen
     const unitInfoPanel = document.getElementById('unit-info-panel');
     if (unitInfoPanel) {
       unitInfoPanel.style.display = 'block';

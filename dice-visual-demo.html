@@ -115,6 +115,9 @@
             border-radius: 10px;
             margin-top: 2px;
             font-weight: bold;
+            min-width: 85px;
+            text-align: center;
+            white-space: nowrap;
         }
 
         .player-unit.infantry { 
@@ -128,6 +131,7 @@
         .player-unit.archer { 
             background: rgba(231, 76, 60, 0.3); 
             color: #e74c3c; 
+            min-width: 95px;
         }
 
         /* Kampf-Bereich */
@@ -226,6 +230,18 @@
             z-index: 10;
         }
 
+        /* Verlust-Marker auf dem Würfel - links positioniert */
+        .dice-loss-marker {
+            position: absolute;
+            top: 50%;
+            left: -18px;
+            transform: translateY(-50%);
+            font-size: 20px;
+            z-index: 10;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+            animation: lossShake 0.5s ease-in-out;
+        }
+
         /* Gewinner-Krone */
         .winner-crown {
             position: absolute;
@@ -249,6 +265,101 @@
             gap: 8px;
             margin: 0 15px;
             padding: 0 10px;
+        }
+
+        /* Spalten-Layout für Würfelbereich */
+        .dice-battle-area {
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            gap: 30px;
+            margin-bottom: 10px;
+        }
+
+        .dice-column {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .column-header {
+            text-align: center;
+            margin-bottom: 5px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .column-icon {
+            font-size: 24px;
+            margin-bottom: 2px;
+        }
+
+        .column-label {
+            font-size: 0.75rem;
+            font-weight: bold;
+            color: #aaa;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .column-unit-info {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2px;
+            margin-top: 3px;
+        }
+
+        .column-unit-strength {
+            font-size: 0.65rem;
+            color: #ffd700;
+            font-weight: bold;
+        }
+
+        .dice-stack {
+            display: flex;
+            flex-direction: column;
+            gap: 22px;
+        }
+
+        .dice-pair-row {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 40px;
+        }
+
+        .losses-under-dice {
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            gap: 0;
+            margin-top: 20px;
+            padding-top: 15px;
+            border-top: 1px solid rgba(255,255,255,0.1);
+            min-height: 50px;
+        }
+
+        .loss-under-column {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .loss-label {
+            font-size: 0.7rem;
+            color: #888;
+            text-transform: uppercase;
+        }
+
+        .loss-value {
+            font-size: 1.1rem;
+            font-weight: bold;
+            color: #e74c3c;
         }
 
         .value-number {
@@ -452,22 +563,8 @@
 
         <!-- Kampf 1 -->
         <div class="combat-content" id="combat1">
-            <div id="combat1-rows">
+            <div id="combat1-area">
                 <!-- Wird dynamisch gefüllt -->
-            </div>
-
-            <div class="combat-result">
-                <div class="result-title">Kampfergebnis</div>
-                <div class="casualties-row">
-                    <div class="casualty-item">
-                        <span>💀</span>
-                        <span id="combat1-attacker-losses">0</span>
-                    </div>
-                    <div class="casualty-item">
-                        <span>💀</span>
-                        <span id="combat1-defender-losses">0</span>
-                    </div>
-                </div>
             </div>
         </div>
 
@@ -475,22 +572,8 @@
 
         <!-- Kampf 2 -->
         <div class="combat-content" id="combat2">
-            <div id="combat2-rows">
+            <div id="combat2-area">
                 <!-- Wird dynamisch gefüllt -->
-            </div>
-
-            <div class="combat-result">
-                <div class="result-title">Kampfergebnis</div>
-                <div class="casualties-row">
-                    <div class="casualty-item">
-                        <span>💀</span>
-                        <span id="combat2-attacker-losses">0</span>
-                    </div>
-                    <div class="casualty-item">
-                        <span>💀</span>
-                        <span id="combat2-defender-losses">0</span>
-                    </div>
-                </div>
             </div>
         </div>
 
@@ -517,8 +600,8 @@
         }
 
         // Würfel-HTML erstellen
-        function createDiceHTML(value, type, bonus = 0, isWinner = false) {
-            const dots = DICE_DOT_PATTERNS[value].map(pos => 
+        function createDiceHTML(value, type, bonus = 0, isWinner = false, lossMarker = '') {
+            const dots = DICE_DOT_PATTERNS[value].map(pos =>
                 `<div class="dot ${pos}"></div>`
             ).join('');
 
@@ -538,6 +621,7 @@
                     <div class="dice ${type} new-roll">
                         ${dots}
                         ${bonusHTML}
+                        ${lossMarker}
                     </div>
                 </div>
             `;
@@ -622,77 +706,172 @@
             return pairs;
         }
 
-        // Kampf rendern
-        function renderCombat(containerId, pairs) {
+        // Kampf rendern mit Spalten-Layout
+        function renderCombat(containerId, pairs, attackerUnitType = 'infantry', defenderUnitType = 'infantry', attackerStrength = 2, defenderStrength = 2) {
             const container = document.getElementById(containerId);
             container.innerHTML = '';
 
             let attackerLosses = 0;
             let defenderLosses = 0;
 
+            // Einheiten-Namen und Stärken
+            const unitNames = {
+                'infantry': 'Infanterie',
+                'cavalry': 'Kavallerie',
+                'archer': 'Bogenschützen'
+            };
+
+            // Spalten-Container erstellen
+            const battleArea = document.createElement('div');
+            battleArea.className = 'dice-battle-area';
+
+            // Linke Spalte (Angreifer)
+            const attackerColumn = document.createElement('div');
+            attackerColumn.className = 'dice-column';
+            
+            // Rechte Spalte (Verteidiger)
+            const defenderColumn = document.createElement('div');
+            defenderColumn.className = 'dice-column';
+
+            // Spalten-Header mit Icons, Labels und Einheiten-Info
+            attackerColumn.innerHTML = `
+                <div class="column-header">
+                    <div class="column-icon">⚔️</div>
+                    <div class="column-label">Angreifer</div>
+                    <div class="column-unit-info">
+                        <span class="player-unit ${attackerUnitType}">${unitNames[attackerUnitType]}</span>
+                        <span class="column-unit-strength">Stärke: ${attackerStrength}</span>
+                    </div>
+                </div>
+            `;
+
+            defenderColumn.innerHTML = `
+                <div class="column-header">
+                    <div class="column-icon">🛡️</div>
+                    <div class="column-label">Verteidiger</div>
+                    <div class="column-unit-info">
+                        <span class="player-unit ${defenderUnitType}">${unitNames[defenderUnitType]}</span>
+                        <span class="column-unit-strength">Stärke: ${defenderStrength}</span>
+                    </div>
+                </div>
+            `;
+
+            // Spalten zum Battle Area hinzufügen
+            battleArea.appendChild(attackerColumn);
+            battleArea.appendChild(defenderColumn);
+
+            // Würfel-Stacks für jede Spalte
+            const attackerDiceStack = document.createElement('div');
+            attackerDiceStack.className = 'dice-stack';
+
+            const defenderDiceStack = document.createElement('div');
+            defenderDiceStack.className = 'dice-stack';
+
+            // VS Container erstellen (zwischen den Spalten)
+            const vsContainer = document.createElement('div');
+            vsContainer.style.display = 'flex';
+            vsContainer.style.flexDirection = 'column';
+            vsContainer.style.justifyContent = 'flex-start';
+            vsContainer.style.gap = '65px';
+            vsContainer.style.paddingTop = '95px';
+            vsContainer.style.minWidth = '80px';
+
+            // Würfel-Paare verarbeiten
             pairs.forEach((pair, index) => {
                 // Zähle Verluste
                 if (pair.defender.isWinner) attackerLosses++;
                 if (pair.attacker.isWinner) defenderLosses++;
 
-                const row = document.createElement('div');
-                row.className = 'dice-row';
+                // Bestimme Marker (X für Verlust) - auf dem Würfel
+                const attackerLossMarker = pair.defender.isWinner ? '<span class="dice-loss-marker">❌</span>' : '';
+                const defenderLossMarker = pair.attacker.isWinner ? '<span class="dice-loss-marker">❌</span>' : '';
 
-                // Angreifer Würfel
-                const attackerDice = createDiceHTML(
-                    pair.attacker.value, 
-                    'white', 
+                // Angreifer Würfel mit Verlust-Marker
+                const attackerDiceHTML = createDiceHTML(
+                    pair.attacker.value,
+                    'white',
                     pair.attacker.bonus,
-                    pair.attacker.isWinner
+                    pair.attacker.isWinner,
+                    attackerLossMarker
                 );
 
-                // Verteidiger Würfel
-                const defenderDice = createDiceHTML(
-                    pair.defender.value, 
-                    'black', 
+                // Verteidiger Würfel mit Verlust-Marker
+                const defenderDiceHTML = createDiceHTML(
+                    pair.defender.value,
+                    'black',
                     pair.defender.bonus,
-                    pair.defender.isWinner
+                    pair.defender.isWinner,
+                    defenderLossMarker
                 );
 
-                // Bestimme Marker (X für Verlust)
-                let attackerMarker = pair.defender.isWinner ? '<span class="loss-marker">❌</span>' : '';
-                let defenderMarker = pair.attacker.isWinner ? '<span class="loss-marker">❌</span>' : '';
+                // Würfel zur Spalte hinzufügen
+                const attackerWrapper = document.createElement('div');
+                attackerWrapper.style.display = 'flex';
+                attackerWrapper.style.flexDirection = 'column';
+                attackerWrapper.style.alignItems = 'center';
+                attackerWrapper.innerHTML = attackerDiceHTML;
+                attackerDiceStack.appendChild(attackerWrapper);
 
-                row.innerHTML = `
-                    ${attackerDice}
-                    <div class="battle-values">
-                        <span class="value-number new-roll">${pair.attacker.total}</span>
-                        ${attackerMarker}
-                        <span class="vs-divider">VS</span>
-                        ${defenderMarker}
-                        <span class="value-number new-roll">${pair.defender.total}</span>
-                    </div>
-                    ${defenderDice}
+                const defenderWrapper = document.createElement('div');
+                defenderWrapper.style.display = 'flex';
+                defenderWrapper.style.flexDirection = 'column';
+                defenderWrapper.style.alignItems = 'center';
+                defenderWrapper.innerHTML = defenderDiceHTML;
+                defenderDiceStack.appendChild(defenderWrapper);
+
+                // VS Zeile mit den tatsächlichen Werten
+                const vsItem = document.createElement('div');
+                vsItem.style.display = 'flex';
+                vsItem.style.alignItems = 'center';
+                vsItem.style.justifyContent = 'center';
+                vsItem.style.gap = '8px';
+                vsItem.innerHTML = `
+                    <span class="value-number new-roll" style="font-size: 1.1rem;">${pair.attacker.total}</span>
+                    <span style="color: #888; font-size: 0.8rem; font-weight: bold;">vs</span>
+                    <span class="value-number new-roll" style="font-size: 1.1rem;">${pair.defender.total}</span>
                 `;
-                
-                container.appendChild(row);
+                vsContainer.appendChild(vsItem);
             });
+
+            // VS Container zwischen die Spalten einfügen
+            battleArea.insertBefore(vsContainer, defenderColumn);
+
+            // Würfel-Stacks zu Spalten hinzufügen
+            attackerColumn.appendChild(attackerDiceStack);
+            defenderColumn.appendChild(defenderDiceStack);
+
+            // Verluste unter den Würfeln - immer nach der 4. Zeile
+            const lossesSection = document.createElement('div');
+            lossesSection.className = 'losses-under-dice';
+            lossesSection.style.marginTop = '20px';
+            lossesSection.innerHTML = `
+                <div class="loss-under-column">
+                    <span class="loss-label">Verluste</span>
+                    <span class="loss-value" id="${containerId}-attacker-losses">${attackerLosses}</span>
+                </div>
+                <div style="width: 80px;"></div>
+                <div class="loss-under-column">
+                    <span class="loss-label">Verluste</span>
+                    <span class="loss-value" id="${containerId}-defender-losses">${defenderLosses}</span>
+                </div>
+            `;
+
+            // Alles zum Container hinzufügen
+            container.appendChild(battleArea);
+            container.appendChild(lossesSection);
 
             return { attackerLosses, defenderLosses };
         }
 
         // Alle Kämpfe neu würfeln
         function rollAllCombat() {
-            // Kampf 1
+            // Kampf 1: Infanterie vs Infanterie
             const combat1Pairs = generateCombat1();
-            const combat1Result = renderCombat('combat1-rows', combat1Pairs);
-            document.getElementById('combat1-attacker-losses').textContent = 
-                `${combat1Result.attackerLosses} Verluste`;
-            document.getElementById('combat1-defender-losses').textContent = 
-                `${combat1Result.defenderLosses} Verluste`;
+            renderCombat('combat1-area', combat1Pairs, 'infantry', 'infantry', 2, 2);
 
-            // Kampf 2
+            // Kampf 2: König (Kavallerie) vs Bogenschützen
             const combat2Pairs = generateCombat2();
-            const combat2Result = renderCombat('combat2-rows', combat2Pairs);
-            document.getElementById('combat2-attacker-losses').textContent = 
-                `${combat2Result.attackerLosses} Verluste`;
-            document.getElementById('combat2-defender-losses').textContent = 
-                `${combat2Result.defenderLosses} Verluste`;
+            renderCombat('combat2-area', combat2Pairs, 'cavalry', 'archer', 3, 2);
         }
 
         // Initial laden
