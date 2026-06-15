@@ -13,311 +13,337 @@
 
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f0f23 100%);
             color: #fff;
-            padding: 20px;
+            padding: 10px;
             min-height: 100vh;
-        }
-
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-        }
-
-        h1 {
-            text-align: center;
-            margin-bottom: 10px;
-            font-size: 2.5rem;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
-        }
-
-        .subtitle {
-            text-align: center;
-            color: #888;
-            margin-bottom: 30px;
-        }
-
-        /* Legende */
-        .legend {
-            background: rgba(255,255,255,0.1);
-            border-radius: 10px;
-            padding: 20px;
-            margin-bottom: 30px;
             display: flex;
             justify-content: center;
-            gap: 40px;
-            flex-wrap: wrap;
+            align-items: flex-start;
         }
 
-        .legend-item {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .legend-dice {
-            width: 30px;
-            height: 30px;
-            border-radius: 5px;
-            border: 2px solid #666;
-        }
-
-        .legend-dice.white {
-            background: #fff;
-        }
-
-        .legend-dice.black {
-            background: #1a1a1a;
-            border-color: #444;
-        }
-
-        .troop-badge {
-            padding: 4px 12px;
-            border-radius: 15px;
-            font-size: 0.85rem;
-            font-weight: bold;
-        }
-
-        .troop-badge.archer { background: #e74c3c; }
-        .troop-badge.cavalry { background: #3498db; }
-        .troop-badge.infantry { background: #2ecc71; }
-
-        /* Kampf-Container */
-        .combat-section {
-            background: rgba(255,255,255,0.05);
-            border-radius: 15px;
-            padding: 25px;
-            margin-bottom: 30px;
-            border: 1px solid rgba(255,255,255,0.1);
-        }
-
-        .combat-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-            padding-bottom: 15px;
-            border-bottom: 2px solid rgba(255,255,255,0.1);
-        }
-
-        .combat-title {
-            font-size: 1.5rem;
-            color: #f1c40f;
-        }
-
-        .combat-players {
-            display: flex;
-            gap: 40px;
-        }
-
-        .player-info {
-            text-align: center;
-        }
-
-        .player-name {
-            font-size: 1.2rem;
-            font-weight: bold;
-            margin-bottom: 5px;
-        }
-
-        .player-name.attacker {
-            color: #fff;
-            text-shadow: 0 0 10px rgba(255,255,255,0.5);
-        }
-
-        .player-name.defender {
-            color: #888;
-        }
-
-        .player-type {
-            font-size: 0.9rem;
-            opacity: 0.8;
-        }
-
-        /* Würfel-Tabelle */
-        .dice-table {
+        /* Kompaktes Mobile-Panel */
+        .battle-panel {
             width: 100%;
-            border-collapse: collapse;
-            margin: 20px 0;
+            max-width: 420px;
+            background: rgba(20, 20, 40, 0.95);
+            border-radius: 20px;
+            border: 2px solid rgba(100, 100, 150, 0.3);
+            box-shadow: 
+                0 20px 60px rgba(0,0,0,0.5),
+                inset 0 1px 0 rgba(255,255,255,0.1);
+            overflow: hidden;
         }
 
-        .dice-table th {
-            background: rgba(241, 196, 15, 0.2);
-            padding: 12px;
-            text-align: center;
-            font-weight: bold;
-            color: #f1c40f;
-        }
-
-        .dice-table th:first-child {
-            width: 60px;
-        }
-
-        .dice-table td {
-            padding: 15px;
+        /* Kompakter Header */
+        .panel-header {
+            background: linear-gradient(180deg, rgba(30,30,60,0.9) 0%, rgba(20,20,40,0.9) 100%);
+            padding: 15px 20px;
             text-align: center;
             border-bottom: 1px solid rgba(255,255,255,0.1);
         }
 
-        .dice-table tr:hover {
-            background: rgba(255,255,255,0.05);
+        .panel-header h1 {
+            font-size: 1.3rem;
+            margin-bottom: 3px;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .panel-header .subtitle {
+            font-size: 0.75rem;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* Spieler-Bereich */
+        .players-bar {
+            display: flex;
+            justify-content: space-between;
+            padding: 12px 20px;
+            background: rgba(0,0,0,0.2);
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .player-badge {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .player-color {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }
+
+        .player-color.attacker {
+            background: linear-gradient(145deg, #ffffff 0%, #e0e0e0 100%);
+            color: #1a1a1a;
+        }
+
+        .player-color.defender {
+            background: linear-gradient(145deg, #2a2a2a 0%, #1a1a1a 100%);
+            color: #fff;
+            border: 1px solid #444;
+        }
+
+        .player-info-text {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .player-label {
+            font-size: 0.75rem;
+            font-weight: bold;
+            color: #aaa;
+            text-transform: uppercase;
+        }
+
+        .player-unit {
+            font-size: 0.7rem;
+            padding: 2px 8px;
+            border-radius: 10px;
+            margin-top: 2px;
+            font-weight: bold;
+        }
+
+        .player-unit.infantry { 
+            background: rgba(46, 204, 113, 0.3); 
+            color: #2ecc71; 
+        }
+        .player-unit.cavalry { 
+            background: rgba(52, 152, 219, 0.3); 
+            color: #3498db; 
+        }
+        .player-unit.archer { 
+            background: rgba(231, 76, 60, 0.3); 
+            color: #e74c3c; 
+        }
+
+        /* Kampf-Bereich */
+        .combat-content {
+            padding: 15px;
+        }
+
+        .combat-divider {
+            height: 1px;
+            background: linear-gradient(90deg, transparent 0%, rgba(100,100,150,0.5) 50%, transparent 100%);
+            margin: 15px 0;
+        }
+
+        /* Würfel-Zeilen */
+        .dice-row {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 12px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            position: relative;
+        }
+
+        .dice-row:last-child {
+            border-bottom: none;
         }
 
         /* Würfel-Styles */
-        .dice-container {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
+        .dice-side {
             position: relative;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
         }
 
         .dice {
-            width: 50px;
-            height: 50px;
-            border-radius: 8px;
+            width: 55px;
+            height: 55px;
+            border-radius: 10px;
             position: relative;
             box-shadow: 
-                0 4px 6px rgba(0,0,0,0.3),
-                inset 0 2px 4px rgba(255,255,255,0.3),
-                inset 0 -2px 4px rgba(0,0,0,0.2);
+                0 6px 12px rgba(0,0,0,0.4),
+                inset 0 2px 4px rgba(255,255,255,0.4),
+                inset 0 -2px 4px rgba(0,0,0,0.3);
             transition: transform 0.2s;
         }
 
-        .dice:hover {
-            transform: scale(1.1);
-        }
-
         .dice.white {
-            background: linear-gradient(145deg, #ffffff 0%, #e0e0e0 100%);
-            border: 2px solid #ccc;
+            background: linear-gradient(145deg, #ffffff 0%, #e0e0e0 50%, #d0d0d0 100%);
+            border: 2px solid #bbb;
         }
 
         .dice.black {
-            background: linear-gradient(145deg, #2a2a2a 0%, #1a1a1a 100%);
-            border: 2px solid #444;
+            background: linear-gradient(145deg, #3a3a3a 0%, #2a2a2a 50%, #1a1a1a 100%);
+            border: 2px solid #555;
         }
 
         /* Würfel-Punkte */
         .dot {
             position: absolute;
-            width: 10px;
-            height: 10px;
+            width: 11px;
+            height: 11px;
             border-radius: 50%;
+            box-shadow: inset 0 1px 2px rgba(0,0,0,0.3);
         }
 
         .dice.white .dot {
-            background: #1a1a1a;
-            box-shadow: inset 0 1px 2px rgba(0,0,0,0.5);
+            background: radial-gradient(circle at 30% 30%, #333 0%, #1a1a1a 100%);
         }
 
         .dice.black .dot {
-            background: #fff;
-            box-shadow: inset 0 1px 2px rgba(255,255,255,0.3);
+            background: radial-gradient(circle at 30% 30%, #fff 0%, #ddd 100%);
         }
 
-        /* Punkt-Positionen (3x3 Grid) */
+        /* Punkt-Positionen */
         .dot.center { top: 50%; left: 50%; transform: translate(-50%, -50%); }
-        .dot.top-left { top: 20%; left: 20%; }
-        .dot.top-right { top: 20%; right: 20%; }
-        .dot.middle-left { top: 50%; left: 20%; transform: translateY(-50%); }
-        .dot.middle-right { top: 50%; right: 20%; transform: translateY(-50%); }
-        .dot.bottom-left { bottom: 20%; left: 20%; }
-        .dot.bottom-right { bottom: 20%; right: 20%; }
+        .dot.top-left { top: 18%; left: 18%; }
+        .dot.top-right { top: 18%; right: 18%; }
+        .dot.middle-left { top: 50%; left: 18%; transform: translateY(-50%); }
+        .dot.middle-right { top: 50%; right: 18%; transform: translateY(-50%); }
+        .dot.bottom-left { bottom: 18%; left: 18%; }
+        .dot.bottom-right { bottom: 18%; right: 18%; }
 
-        /* Bonus-Indikatoren */
-        .bonus-indicator {
+        /* Bonus-Badge */
+        .bonus-badge {
             position: absolute;
-            font-size: 12px;
+            top: -8px;
+            right: -10px;
+            background: linear-gradient(145deg, #ffd700 0%, #ffaa00 100%);
+            color: #000;
+            font-size: 11px;
             font-weight: bold;
             padding: 2px 6px;
             border-radius: 10px;
-            white-space: nowrap;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+            z-index: 10;
         }
 
-        .bonus-indicator.bonus {
-            background: #ffeb3b;
-            color: #000;
-            top: -8px;
-            right: -20px;
-        }
-
-        .bonus-indicator.king {
-            background: #ffd700;
-            color: #000;
-            top: -10px;
+        /* Gewinner-Krone */
+        .winner-crown {
+            position: absolute;
+            top: -18px;
             left: 50%;
             transform: translateX(-50%);
+            font-size: 16px;
+            filter: drop-shadow(0 2px 2px rgba(0,0,0,0.5));
+            animation: crownPulse 1.5s ease-in-out infinite;
         }
 
-        /* Ergebnis-Spalte */
-        .result-cell {
+        @keyframes crownPulse {
+            0%, 100% { transform: translateX(-50%) scale(1); }
+            50% { transform: translateX(-50%) scale(1.2); }
+        }
+
+        /* Kampf-Werte Bereich */
+        .battle-values {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 0 15px;
+            padding: 0 10px;
+        }
+
+        .value-number {
+            font-size: 1.4rem;
             font-weight: bold;
-            font-size: 1.1rem;
+            color: #ffd700;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+            min-width: 30px;
+            text-align: center;
         }
 
-        .result-cell.win {
-            color: #2ecc71;
+        .vs-divider {
+            color: #666;
+            font-size: 0.9rem;
+            font-weight: bold;
         }
 
-        .result-cell.loss {
+        .loss-marker {
             color: #e74c3c;
+            font-size: 1.4rem;
+            font-weight: bold;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+            animation: lossShake 0.5s ease-in-out;
         }
 
-        .result-cell.tie {
-            color: #f1c40f;
+        @keyframes lossShake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-3px); }
+            75% { transform: translateX(3px); }
+        }
+
+        .win-marker {
+            color: #2ecc71;
+            font-size: 1.2rem;
         }
 
         /* Gesamtergebnis */
         .combat-result {
             background: rgba(0,0,0,0.3);
-            border-radius: 10px;
-            padding: 20px;
-            margin-top: 20px;
+            border-radius: 12px;
+            padding: 15px;
+            margin-top: 10px;
             text-align: center;
+            border: 1px solid rgba(255,255,255,0.1);
         }
 
         .result-title {
-            font-size: 1.3rem;
-            color: #f1c40f;
-            margin-bottom: 15px;
+            font-size: 0.85rem;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 10px;
         }
 
-        .casualties {
+        .casualties-row {
             display: flex;
             justify-content: center;
-            gap: 60px;
-            margin-top: 15px;
+            gap: 30px;
         }
 
-        .casualty-box {
-            padding: 15px 25px;
-            border-radius: 10px;
-            background: rgba(231, 76, 60, 0.2);
-            border: 1px solid rgba(231, 76, 60, 0.5);
+        .casualty-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 15px;
+            border-radius: 8px;
+            background: rgba(231, 76, 60, 0.15);
+            border: 1px solid rgba(231, 76, 60, 0.3);
         }
 
-        .casualty-box h4 {
-            margin-bottom: 8px;
+        .casualty-item span {
             color: #e74c3c;
+            font-weight: bold;
+            font-size: 0.9rem;
         }
 
         /* Steuerung */
         .controls {
+            padding: 15px 20px 20px;
             text-align: center;
-            margin: 30px 0;
+            background: rgba(0,0,0,0.2);
         }
 
         .btn {
             background: linear-gradient(145deg, #f1c40f 0%, #d4ac0d 100%);
             color: #1a1a2e;
             border: none;
-            padding: 15px 40px;
-            font-size: 1.1rem;
+            padding: 12px 35px;
+            font-size: 1rem;
             font-weight: bold;
-            border-radius: 30px;
+            border-radius: 25px;
             cursor: pointer;
             transition: all 0.3s;
             box-shadow: 0 4px 15px rgba(241, 196, 15, 0.4);
+            width: 100%;
         }
 
         .btn:hover {
@@ -335,6 +361,9 @@
                 opacity: 0;
                 transform: scale(0) rotate(-180deg);
             }
+            50% {
+                transform: scale(1.1) rotate(0);
+            }
             100% {
                 opacity: 1;
                 transform: scale(1) rotate(0);
@@ -344,119 +373,122 @@
         .dice.new-roll {
             animation: rollIn 0.5s ease-out;
         }
+
+        /* Animation für Wert-Erscheinen */
+        @keyframes valuePop {
+            0% {
+                opacity: 0;
+                transform: scale(0);
+            }
+            70% {
+                transform: scale(1.2);
+            }
+            100% {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+
+        .value-number.new-roll {
+            animation: valuePop 0.4s ease-out 0.3s both;
+        }
+
+        /* Responsive */
+        @media (max-width: 480px) {
+            body {
+                padding: 5px;
+            }
+            
+            .battle-panel {
+                border-radius: 15px;
+            }
+            
+            .dice {
+                width: 50px;
+                height: 50px;
+            }
+            
+            .dot {
+                width: 10px;
+                height: 10px;
+            }
+            
+            .battle-values {
+                margin: 0 10px;
+            }
+            
+            .value-number {
+                font-size: 1.2rem;
+                min-width: 25px;
+            }
+        }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>⚔️ Lands of Glory</h1>
-        <p class="subtitle">Würfel-Kampf Visualisierung</p>
+    <div class="battle-panel">
+        <!-- Header -->
+        <div class="panel-header">
+            <h1>⚔️ Lands of Glory</h1>
+            <p class="subtitle">Würfel-Kampf Visualisierung</p>
+        </div>
 
-        <!-- Legende -->
-        <div class="legend">
-            <div class="legend-item">
-                <div class="legend-dice white"></div>
-                <span>Angreifer (Weiß)</span>
+        <!-- Spieler Bar -->
+        <div class="players-bar">
+            <div class="player-badge">
+                <div class="player-color attacker">⚔️</div>
+                <div class="player-info-text">
+                    <span class="player-label">Angreifer</span>
+                    <span class="player-unit infantry" id="attacker-unit">Infanterie</span>
+                </div>
             </div>
-            <div class="legend-item">
-                <div class="legend-dice black"></div>
-                <span>Verteidiger (Schwarz)</span>
-            </div>
-            <div class="legend-item">
-                <span class="troop-badge archer">Bogenschützen</span>
-            </div>
-            <div class="legend-item">
-                <span class="troop-badge cavalry">Kavallerie</span>
-            </div>
-            <div class="legend-item">
-                <span class="troop-badge infantry">Infanterie</span>
+            <div class="player-badge">
+                <div class="player-info-text" style="align-items: flex-end;">
+                    <span class="player-label">Verteidiger</span>
+                    <span class="player-unit infantry" id="defender-unit">Infanterie</span>
+                </div>
+                <div class="player-color defender">🛡️</div>
             </div>
         </div>
 
         <!-- Kampf 1 -->
-        <div class="combat-section" id="combat1">
-            <div class="combat-header">
-                <h2 class="combat-title">Kampf #1: Infanterie vs Infanterie</h2>
-                <div class="combat-players">
-                    <div class="player-info">
-                        <div class="player-name attacker">⚔️ Angreifer</div>
-                        <div class="player-type"><span class="troop-badge infantry">Infanterie</span></div>
-                    </div>
-                    <div class="player-info">
-                        <div class="player-name defender">🛡️ Verteidiger</div>
-                        <div class="player-type"><span class="troop-badge infantry">Infanterie</span></div>
-                    </div>
-                </div>
+        <div class="combat-content" id="combat1">
+            <div id="combat1-rows">
+                <!-- Wird dynamisch gefüllt -->
             </div>
 
-            <table class="dice-table">
-                <thead>
-                    <tr>
-                        <th>Paar</th>
-                        <th>Angreifer-Wurf</th>
-                        <th>Verteidiger-Wurf</th>
-                        <th>Ergebnis</th>
-                    </tr>
-                </thead>
-                <tbody id="combat1-body">
-                    <!-- Wird dynamisch gefüllt -->
-                </tbody>
-            </table>
-
             <div class="combat-result">
-                <div class="result-title">📊 Kampfergebnis</div>
-                <div class="casualties">
-                    <div class="casualty-box">
-                        <h4>💀 Angreifer-Verluste</h4>
-                        <div id="combat1-attacker-losses">0 Units</div>
+                <div class="result-title">Kampfergebnis</div>
+                <div class="casualties-row">
+                    <div class="casualty-item">
+                        <span>💀</span>
+                        <span id="combat1-attacker-losses">0</span>
                     </div>
-                    <div class="casualty-box">
-                        <h4>💀 Verteidiger-Verluste</h4>
-                        <div id="combat1-defender-losses">0 Units</div>
+                    <div class="casualty-item">
+                        <span>💀</span>
+                        <span id="combat1-defender-losses">0</span>
                     </div>
                 </div>
             </div>
         </div>
 
+        <div class="combat-divider"></div>
+
         <!-- Kampf 2 -->
-        <div class="combat-section" id="combat2">
-            <div class="combat-header">
-                <h2 class="combat-title">Kampf #2: König (Kavallerie) vs Infanterie</h2>
-                <div class="combat-players">
-                    <div class="player-info">
-                        <div class="player-name attacker">👑 König (Angreifer)</div>
-                        <div class="player-type"><span class="troop-badge cavalry">Kavallerie</span> 👑</div>
-                    </div>
-                    <div class="player-info">
-                        <div class="player-name defender">🛡️ Verteidiger</div>
-                        <div class="player-type"><span class="troop-badge infantry">Infanterie</span></div>
-                    </div>
-                </div>
+        <div class="combat-content" id="combat2">
+            <div id="combat2-rows">
+                <!-- Wird dynamisch gefüllt -->
             </div>
 
-            <table class="dice-table">
-                <thead>
-                    <tr>
-                        <th>Paar</th>
-                        <th>Angreifer-Wurf</th>
-                        <th>Verteidiger-Wurf</th>
-                        <th>Ergebnis</th>
-                    </tr>
-                </thead>
-                <tbody id="combat2-body">
-                    <!-- Wird dynamisch gefüllt -->
-                </tbody>
-            </table>
-
             <div class="combat-result">
-                <div class="result-title">📊 Kampfergebnis</div>
-                <div class="casualties">
-                    <div class="casualty-box">
-                        <h4>💀 Angreifer-Verluste</h4>
-                        <div id="combat2-attacker-losses">0 Units</div>
+                <div class="result-title">Kampfergebnis</div>
+                <div class="casualties-row">
+                    <div class="casualty-item">
+                        <span>💀</span>
+                        <span id="combat2-attacker-losses">0</span>
                     </div>
-                    <div class="casualty-box">
-                        <h4>💀 Verteidiger-Verluste</h4>
-                        <div id="combat2-defender-losses">0 Units</div>
+                    <div class="casualty-item">
+                        <span>💀</span>
+                        <span id="combat2-defender-losses">0</span>
                     </div>
                 </div>
             </div>
@@ -485,25 +517,28 @@
         }
 
         // Würfel-HTML erstellen
-        function createDiceHTML(value, type, bonus = 0, isKing = false) {
+        function createDiceHTML(value, type, bonus = 0, isWinner = false) {
             const dots = DICE_DOT_PATTERNS[value].map(pos => 
                 `<div class="dot ${pos}"></div>`
             ).join('');
 
             let bonusHTML = '';
             if (bonus > 0) {
-                bonusHTML += `<span class="bonus-indicator bonus">+${bonus}</span>`;
+                bonusHTML = `<span class="bonus-badge">+${bonus}</span>`;
             }
-            if (isKing) {
-                bonusHTML += `<span class="bonus-indicator king">👑</span>`;
+
+            let crownHTML = '';
+            if (isWinner) {
+                crownHTML = `<span class="winner-crown">👑</span>`;
             }
 
             return `
-                <div class="dice-container">
+                <div class="dice-side">
+                    ${crownHTML}
                     <div class="dice ${type} new-roll">
                         ${dots}
+                        ${bonusHTML}
                     </div>
-                    ${bonusHTML}
                 </div>
             `;
         }
@@ -522,23 +557,24 @@
                 const attackerTotal = attackerValue + attackerBonus;
                 const defenderTotal = defenderValue + defenderBonus;
 
-                let result, resultClass;
-                if (attackerTotal > defenderTotal) {
-                    result = 'Angreifer gewinnt';
-                    resultClass = 'win';
-                } else if (defenderTotal > attackerTotal) {
-                    result = 'Verteidiger gewinnt';
-                    resultClass = 'loss';
-                } else {
-                    result = 'Unentschieden';
-                    resultClass = 'tie';
-                }
+                let attackerWins = attackerTotal > defenderTotal;
+                let defenderWins = defenderTotal > attackerTotal;
+                let isTie = attackerTotal === defenderTotal;
 
                 pairs.push({
-                    attacker: { value: attackerValue, bonus: attackerBonus },
-                    defender: { value: defenderValue, bonus: defenderBonus },
-                    result: result,
-                    resultClass: resultClass
+                    attacker: { 
+                        value: attackerValue, 
+                        bonus: attackerBonus, 
+                        total: attackerTotal,
+                        isWinner: attackerWins 
+                    },
+                    defender: { 
+                        value: defenderValue, 
+                        bonus: defenderBonus, 
+                        total: defenderTotal,
+                        isWinner: defenderWins 
+                    },
+                    isTie: isTie
                 });
             }
 
@@ -555,58 +591,86 @@
                 const defenderValue = rollDice();
                 const attackerBonus = Math.random() > 0.6 ? Math.floor(Math.random() * 2) + 1 : 0;
                 const defenderBonus = Math.random() > 0.7 ? Math.floor(Math.random() * 2) + 1 : 0;
-                const isKing = i === 0; // Erster Würfel ist der König
+                const isKing = i === 0;
                 const kingBonus = isKing ? 1 : 0;
                 
                 const attackerTotal = attackerValue + attackerBonus + kingBonus;
                 const defenderTotal = defenderValue + defenderBonus;
 
-                let result, resultClass;
-                if (attackerTotal > defenderTotal) {
-                    result = 'Angreifer gewinnt';
-                    resultClass = 'win';
-                } else if (defenderTotal > attackerTotal) {
-                    result = 'Verteidiger gewinnt';
-                    resultClass = 'loss';
-                } else {
-                    result = 'Unentschieden';
-                    resultClass = 'tie';
-                }
+                let attackerWins = attackerTotal > defenderTotal;
+                let defenderWins = defenderTotal > attackerTotal;
+                let isTie = attackerTotal === defenderTotal;
 
                 pairs.push({
-                    attacker: { value: attackerValue, bonus: attackerBonus, isKing: isKing },
-                    defender: { value: defenderValue, bonus: defenderBonus },
-                    result: result,
-                    resultClass: resultClass
+                    attacker: { 
+                        value: attackerValue, 
+                        bonus: attackerBonus + kingBonus, 
+                        total: attackerTotal,
+                        isWinner: attackerWins,
+                        isKing: isKing
+                    },
+                    defender: { 
+                        value: defenderValue, 
+                        bonus: defenderBonus, 
+                        total: defenderTotal,
+                        isWinner: defenderWins 
+                    },
+                    isTie: isTie
                 });
             }
 
             return pairs;
         }
 
-        // Tabelle rendern
-        function renderCombatTable(tableId, pairs) {
-            const tbody = document.getElementById(tableId);
-            tbody.innerHTML = '';
+        // Kampf rendern
+        function renderCombat(containerId, pairs) {
+            const container = document.getElementById(containerId);
+            container.innerHTML = '';
 
             let attackerLosses = 0;
             let defenderLosses = 0;
 
             pairs.forEach((pair, index) => {
-                const row = document.createElement('tr');
-                
                 // Zähle Verluste
-                if (pair.resultClass === 'win') defenderLosses++;
-                else if (pair.resultClass === 'loss') attackerLosses++;
+                if (pair.defender.isWinner) attackerLosses++;
+                if (pair.attacker.isWinner) defenderLosses++;
+
+                const row = document.createElement('div');
+                row.className = 'dice-row';
+
+                // Angreifer Würfel
+                const attackerDice = createDiceHTML(
+                    pair.attacker.value, 
+                    'white', 
+                    pair.attacker.bonus,
+                    pair.attacker.isWinner
+                );
+
+                // Verteidiger Würfel
+                const defenderDice = createDiceHTML(
+                    pair.defender.value, 
+                    'black', 
+                    pair.defender.bonus,
+                    pair.defender.isWinner
+                );
+
+                // Bestimme Marker (X für Verlust)
+                let attackerMarker = pair.defender.isWinner ? '<span class="loss-marker">❌</span>' : '';
+                let defenderMarker = pair.attacker.isWinner ? '<span class="loss-marker">❌</span>' : '';
 
                 row.innerHTML = `
-                    <td>${index + 1}</td>
-                    <td>${createDiceHTML(pair.attacker.value, 'white', pair.attacker.bonus, pair.attacker.isKing)}</td>
-                    <td>${createDiceHTML(pair.defender.value, 'black', pair.defender.bonus, false)}</td>
-                    <td class="result-cell ${pair.resultClass}">${pair.result}</td>
+                    ${attackerDice}
+                    <div class="battle-values">
+                        <span class="value-number new-roll">${pair.attacker.total}</span>
+                        ${attackerMarker}
+                        <span class="vs-divider">VS</span>
+                        ${defenderMarker}
+                        <span class="value-number new-roll">${pair.defender.total}</span>
+                    </div>
+                    ${defenderDice}
                 `;
                 
-                tbody.appendChild(row);
+                container.appendChild(row);
             });
 
             return { attackerLosses, defenderLosses };
@@ -616,19 +680,19 @@
         function rollAllCombat() {
             // Kampf 1
             const combat1Pairs = generateCombat1();
-            const combat1Result = renderCombatTable('combat1-body', combat1Pairs);
+            const combat1Result = renderCombat('combat1-rows', combat1Pairs);
             document.getElementById('combat1-attacker-losses').textContent = 
-                `${combat1Result.attackerLosses} Unit${combat1Result.attackerLosses !== 1 ? 's' : ''}`;
+                `${combat1Result.attackerLosses} Verluste`;
             document.getElementById('combat1-defender-losses').textContent = 
-                `${combat1Result.defenderLosses} Unit${combat1Result.defenderLosses !== 1 ? 's' : ''}`;
+                `${combat1Result.defenderLosses} Verluste`;
 
             // Kampf 2
             const combat2Pairs = generateCombat2();
-            const combat2Result = renderCombatTable('combat2-body', combat2Pairs);
+            const combat2Result = renderCombat('combat2-rows', combat2Pairs);
             document.getElementById('combat2-attacker-losses').textContent = 
-                `${combat2Result.attackerLosses} Unit${combat2Result.attackerLosses !== 1 ? 's' : ''}`;
+                `${combat2Result.attackerLosses} Verluste`;
             document.getElementById('combat2-defender-losses').textContent = 
-                `${combat2Result.defenderLosses} Unit${combat2Result.defenderLosses !== 1 ? 's' : ''}`;
+                `${combat2Result.defenderLosses} Verluste`;
         }
 
         // Initial laden
