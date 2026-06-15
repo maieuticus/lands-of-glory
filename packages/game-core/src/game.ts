@@ -35,6 +35,12 @@ import {
 } from './types';
 import { createEmptyBoard } from './board';
 import { GameRuleError, GameErrorCode } from './errors';
+import {
+  ArmyConfig,
+  buildArmy,
+  getDefaultArmyConfig,
+  DEFAULT_STARTING_BUDGET,
+} from './army-builder';
 
 /**
  * Create a new game with specified players
@@ -77,71 +83,26 @@ export function createGame(config: GameConfig): GameState {
     const playerConfig = config.players[pIdx];
     const playerId = createPlayerId(`player-${pIdx}`);
 
-    // Create 6 commanders per player: 1 King, 5 regular
-    // Per Spec 003: 3 Infantry, 1 Cavalry, 2 Archers, King has Cavalry units (blue)
-    const commanders: CommanderId[] = [];
-    const commanderTypes: TroopType[] = [
-      'cavalry',   // King (index 0) - has cavalry units (blue)
-      'infantry',  // Regular infantry
-      'infantry',  // Regular infantry
-      'cavalry',   // Cavalry
-      'archer',    // Archer
-      'archer',    // Archer
-    ];
+    // Get army configuration for this player
+    // Use custom config if provided, otherwise use default
+    const armyConfig: ArmyConfig = playerConfig.armyConfig ?? getDefaultArmyConfig();
 
-    for (let cIdx = 0; cIdx < 6; cIdx++) {
-      const commanderId = createCommanderId(`commander-${pIdx}-${cIdx}`);
-      commanders.push(commanderId);
+    // Build the army using the army builder
+    const commanderPositions = getCommanderPositionsForPlayer(pIdx, armyConfig.commanders.length);
+    const builtCommanders = buildArmy(playerId, armyConfig, commanderPositions);
 
-      const isKing = cIdx === 0;  // First commander is the King
-      const troopType = commanderTypes[cIdx];
+    // Add commanders to maps
+    const commanderIds: CommanderId[] = [];
+    for (const commander of builtCommanders) {
+      commandersMap.set(commander.id, commander);
+      commanderIds.push(commander.id);
 
-      // Create units for this commander per Spec 003
-      // King: 0, 0, 0, 0 (all 4 units have bonusPoints 0)
-      // Normal: 0, 0, 1, 3 (two with 0, one with 1, one with 3)
-      // First regular infantry (cIdx === 1) has only 2 units
-      const units: (Unit | null)[] = [];
-      const isTwoUnitInfantry = !isKing && troopType === 'infantry' && cIdx === 1;
-      // First archer (cIdx === 4) gets bonusValues [0, 2, 1, 3] - one 0 changed to 2
-      const isFirstArcher = !isKing && troopType === 'archer' && cIdx === 4;
-      const bonusValues: (0 | 1 | 2 | 3)[] = isKing
-        ? [0, 0, 0, 0]
-        : isFirstArcher
-          ? [0, 2, 1, 3]
-          : [0, 0, 1, 3];
-
-      for (let slotIdx = 0; slotIdx < COMMANDER_SLOTS; slotIdx++) {
-        // First regular infantry has only 2 units (slots 0 and 1)
-        if (isTwoUnitInfantry && slotIdx >= 2) {
-          units.push(null);
-          continue;
+      // Add units to units map
+      for (const unit of commander.units) {
+        if (unit) {
+          unitsMap.set(unit.id, unit);
         }
-
-        const unitId = createUnitId(`unit-${pIdx}-${cIdx}-${slotIdx}`);
-        const unit: Unit = {
-          id: unitId,
-          troopType,
-          bonusPoints: bonusValues[slotIdx],
-          commanderId,
-          slotIndex: slotIdx as 0 | 1 | 2 | 3,
-          status: 'active',
-        };
-        unitsMap.set(unitId, unit);
-        units.push(unit);
       }
-
-      const commander: Commander = {
-        id: commanderId,
-        type: troopType,
-        position: getInitialCommanderPosition(pIdx, cIdx),
-        health: COMMANDER_MAX_HEALTH,
-        playerId,
-        units,
-        isKing,
-        hasActedThisTurn: false,  // Per Spec 004: reset at turn start
-      };
-
-      commandersMap.set(commanderId, commander);
     }
 
     // Create 1 banner per player
@@ -158,7 +119,7 @@ export function createGame(config: GameConfig): GameState {
       id: playerId,
       name: playerConfig.name,
       color: playerConfig.color,
-      commanders,
+      commanders: commanderIds,
       score: 0,
       isActive: pIdx === 0,  // First player is active initially
     };
@@ -183,38 +144,39 @@ export function createGame(config: GameConfig): GameState {
 }
 
 /**
- * Calculate initial position for a commander based on player and commander index
+ * Calculate initial positions for a player's commanders
  *
- * Positions per Spec 003 (0-indexed):
- * Player 1: (9,8), (10,8), (11,8), (13,8), (14,8), (15,8)
- * Player 2: (9,15), (10,15), (11,15), (13,15), (14,15), (15,15)
+ * Generates positions in a grid formation based on the number of commanders.
+ * Default formations for 6 commanders (2 rows x 3 columns):
+ * Player 1: (10,8), (11,8), (12,8), (10,9), (11,9), (12,9)
+ * Player 2: (10,14), (11,14), (12,14), (10,15), (11,15), (12,15)
  *
  * @param playerIndex - Player number (0-3)
- * @param commanderIndex - Commander number within player (0-5)
- * @returns Initial position for commander
+ * @param commanderCount - Number of commanders to place
+ * @returns Array of positions for each commander
  */
-function getInitialCommanderPosition(playerIndex: number, commanderIndex: number): Position {
-  const positions: Record<number, Position[]> = {
-    0: [
-      { x: 10, y: 8 },   // King position (will be assigned to first commander)
-      { x: 11, y: 8 },
-      { x: 12, y: 8 },
-      { x: 10, y: 9 },
-      { x: 11, y: 9 },
-      { x: 12, y: 9 },
-    ],  // Player 1 - 2 rows, 3 columns (compact formation)
-    1: [
-      { x: 10, y: 14 },  // King position
-      { x: 11, y: 14 },
-      { x: 12, y: 14 },
-      { x: 10, y: 15 },
-      { x: 11, y: 15 },
-      { x: 12, y: 15 },
-    ],  // Player 2 - 2 rows, 3 columns (compact formation)
+function getCommanderPositionsForPlayer(playerIndex: number, commanderCount: number): Position[] {
+  const basePositions: Record<number, { x: number; y: number }> = {
+    0: { x: 10, y: 8 },   // Player 1 base position
+    1: { x: 10, y: 14 },  // Player 2 base position
   };
 
-  const playerPositions = positions[playerIndex] ?? positions[0];
-  return playerPositions[commanderIndex] ?? playerPositions[0];
+  const base = basePositions[playerIndex] ?? basePositions[0];
+  const positions: Position[] = [];
+
+  // Calculate grid dimensions (aim for roughly square)
+  const cols = Math.ceil(Math.sqrt(commanderCount));
+  
+  for (let i = 0; i < commanderCount; i++) {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    positions.push({
+      x: base.x + col,
+      y: base.y + row,
+    });
+  }
+
+  return positions;
 }
 
 /**

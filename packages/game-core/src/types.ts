@@ -176,6 +176,15 @@ export interface PlayerConfig {
   readonly name: string;
   readonly color: string;  // Hex color code (e.g., '#FF0000')
   readonly commanderIds?: readonly CommanderId[];  // Optional: pre-defined commanders
+  readonly armyConfig?: import('./army-builder').ArmyConfig;  // Optional: custom army configuration
+}
+
+/**
+ * Army builder configuration for the game
+ */
+export interface ArmyBuilderConfig {
+  readonly enabled: boolean;
+  readonly startingBudget: number;  // Default: 20 gold
 }
 
 /**
@@ -275,6 +284,7 @@ export interface GameConfig {
   readonly players: readonly PlayerConfig[];
   readonly boardSeed?: number;  // Optional: for reproducible board generation
   readonly debugMode?: boolean;
+  readonly armyBuilder?: ArmyBuilderConfig;  // Optional: army builder configuration
 }
 
 // ============================================================================

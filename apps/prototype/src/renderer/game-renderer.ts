@@ -18,6 +18,8 @@ import {
   BOARD_WIDTH,
   BOARD_HEIGHT,
   CommanderId,
+  GameResults,
+  PlayerScore,
 } from '@lands-of-glory/game-core';
 import * as PIXI from 'pixi.js';
 import { AnimationManager, AnimationConfig } from './animations';
@@ -128,6 +130,9 @@ export class GameRenderer {
   private tileSprites: Map<string, PIXI.Graphics> = new Map();
   private commanderSprites: Map<string, PIXI.Container> = new Map();
   private bannerSprites: Map<string, PIXI.Graphics> = new Map();
+  
+  // Map background sprite
+  private mapSprite: PIXI.Sprite | null = null;
   
   // Drag state
   private dragState: DragState = { isDragging: false, validMoveTiles: new Set() };
@@ -537,7 +542,11 @@ export class GameRenderer {
     const commander = this.currentState.commanders.get(commanderId);
     if (!commander) return;
 
-    const range = TROOP_STATS[commander.type].moveRange;
+    // Empty commanders move like cavalry (2 tiles)
+    const hasActiveUnits = commander.units.some(
+      (u) => u !== null && u.status === 'active'
+    );
+    const range = hasActiveUnits ? TROOP_STATS[commander.type].moveRange : 2;
     const rangeOverlay = new PIXI.Graphics();
     const validTiles = new Set<string>();
     const borderWidth = 0.5 * this.camera.zoom; // Dünnere Randbreite (1/4)
@@ -823,6 +832,7 @@ export class GameRenderer {
     this.uiLayer.removeChildren();
     this.debugLayer.removeChildren();
     // Note: dragLayer is NOT cleared here - it's managed separately
+    // Note: mapSprite is kept as texture source, not added to boardLayer directly
   }
 
   /**
@@ -831,15 +841,31 @@ export class GameRenderer {
   private renderBoard(state: GameState, uiState: UIState): void {
     const graphics = new PIXI.Graphics();
     
+    // Load tile texture if not already loaded
+    if (!this.mapSprite) {
+      const texture = PIXI.Texture.from('/tile.png');
+      this.mapSprite = new PIXI.Sprite(texture);
+    }
+    
     for (let x = 0; x < BOARD_WIDTH; x++) {
       for (let y = 0; y < BOARD_HEIGHT; y++) {
         const screenPos = this.worldToScreen({ x, y });
         const size = this.tileSize * this.camera.zoom;
         
-        // Draw tile background (all tiles same green - use lighter color)
-        graphics.beginFill(COLORS.GRASS);
-        graphics.drawRect(screenPos.x, screenPos.y, size, size);
-        graphics.endFill();
+        // Draw tile image on each field
+        if (this.mapSprite && this.mapSprite.texture.valid) {
+          const tileSprite = new PIXI.Sprite(this.mapSprite.texture);
+          tileSprite.x = screenPos.x;
+          tileSprite.y = screenPos.y;
+          tileSprite.width = size;
+          tileSprite.height = size;
+          this.boardLayer.addChild(tileSprite);
+        } else {
+          // Fallback: green background if image not loaded yet
+          graphics.beginFill(COLORS.GRASS);
+          graphics.drawRect(screenPos.x, screenPos.y, size, size);
+          graphics.endFill();
+        }
         
         // Draw grid
         graphics.lineStyle(1, COLORS.GRID, 0.3);
@@ -858,6 +884,7 @@ export class GameRenderer {
 
   /**
    * Render all banners
+   * Medieval banner/standard with player color
    */
   private renderBanners(state: GameState): void {
     for (const banner of state.banners.values()) {
@@ -870,23 +897,61 @@ export class GameRenderer {
       const playerIndex = state.players.findIndex(p => p.id === banner.playerId);
       const playerColor = PLAYER_COLORS[playerIndex] || COLORS.PLAYER_1;
       
-      // Draw banner (triangle flag shape)
-      graphics.beginFill(COLORS.BANNER);
-      graphics.moveTo(screenPos.x + size * 0.3, screenPos.y + size * 0.2);
-      graphics.lineTo(screenPos.x + size * 0.7, screenPos.y + size * 0.35);
-      graphics.lineTo(screenPos.x + size * 0.3, screenPos.y + size * 0.5);
+      // Banner dimensions
+      const bannerWidth = size * 0.5;
+      const bannerHeight = size * 0.55;
+      const bannerX = screenPos.x + size * 0.5 - bannerWidth / 2;
+      const bannerY = screenPos.y + size * 0.15;
+      const centerX = bannerX + bannerWidth / 2;
+      const bottomY = bannerY + bannerHeight;
+      
+      // Draw pole (black staff) - vertical line behind banner
+      const poleWidth = 3 * this.camera.zoom;
+      graphics.beginFill(0x000000);
+      graphics.drawRect(centerX - poleWidth / 2, bannerY + bannerHeight * 0.1, poleWidth, size * 0.75);
+      graphics.endFill();
+      
+      // Draw base line (horizontal stand line at bottom of pole) - wider
+      const baseLineWidth = size * 0.28;
+      const baseLineHeight = 3 * this.camera.zoom;
+      graphics.beginFill(0x000000);
+      graphics.drawRect(centerX - baseLineWidth / 2, bannerY + size * 0.75, baseLineWidth, baseLineHeight);
+      graphics.endFill();
+      
+      // Draw banner shape (pointed bottom like a pennant/standard)
+      // Top edge: horizontal
+      // Left and right: vertical straight sides
+      // Bottom: pointed (two diagonal lines meeting at center)
+      
+      // Banner outline (gray border) - same thickness as commander borders
+      const borderWidth = 1 * this.camera.zoom;
+      graphics.lineStyle(borderWidth, 0x666666, 1);
+      graphics.beginFill(playerColor);
+      
+      // Start at top-left
+      graphics.moveTo(bannerX, bannerY);
+      // Top edge to top-right
+      graphics.lineTo(bannerX + bannerWidth, bannerY);
+      // Right edge down
+      graphics.lineTo(bannerX + bannerWidth, bannerY + bannerHeight * 0.7);
+      // Diagonal to bottom center point
+      graphics.lineTo(centerX, bottomY);
+      // Diagonal up to left side
+      graphics.lineTo(bannerX, bannerY + bannerHeight * 0.7);
+      // Close path to top-left
       graphics.closePath();
       graphics.endFill();
       
-      // Draw pole
-      graphics.beginFill(0x8d6e63);
-      graphics.drawRect(screenPos.x + size * 0.3 - 2, screenPos.y + size * 0.2, 4, size * 0.6);
-      graphics.endFill();
-      
-      // Draw base
-      graphics.beginFill(playerColor);
-      graphics.drawCircle(screenPos.x + size * 0.3, screenPos.y + size * 0.85, size * 0.12);
-      graphics.endFill();
+      // For dark player colors (like black), add a subtle highlight border
+      if (playerColor === 0x000000 || playerColor === 0x111111) {
+        graphics.lineStyle(borderWidth, 0x888888, 0.5);
+        graphics.moveTo(bannerX, bannerY);
+        graphics.lineTo(bannerX + bannerWidth, bannerY);
+        graphics.lineTo(bannerX + bannerWidth, bannerY + bannerHeight * 0.7);
+        graphics.lineTo(centerX, bottomY);
+        graphics.lineTo(bannerX, bannerY + bannerHeight * 0.7);
+        graphics.closePath();
+      }
       
       this.bannerLayer.addChild(graphics);
     }
@@ -996,8 +1061,8 @@ export class GameRenderer {
             }
           }
         } else {
-          // Leerer Slot - ausgefüllt mit der Randfarbe
-          graphics.beginFill(uniformBorderColor, 0.8);
+          // Leerer Slot - dunkleres Braun wie der Kommandeur
+          graphics.beginFill(COLORS.COMMANDER_BG_DARKER, 1.0);
           graphics.lineStyle(borderWidth, uniformBorderColor, 1.0);
           graphics.drawCircle(pos.x, pos.y, unitRadius);
           graphics.endFill();
@@ -1200,6 +1265,126 @@ export class GameRenderer {
    */
   getApp(): PIXI.Application {
     return this.app;
+  }
+
+  /**
+   * Show game results dialog
+   */
+  showGameResults(results: GameResults): void {
+    const container = new PIXI.Container();
+    
+    // Background
+    const bg = new PIXI.Graphics();
+    bg.beginFill(0x000000, 0.9);
+    bg.drawRoundedRect(0, 0, this.camera.viewportWidth, this.camera.viewportHeight, 0);
+    bg.endFill();
+    container.addChild(bg);
+    
+    // Title
+    const titleStyle = new PIXI.TextStyle({
+      fontFamily: 'Arial',
+      fontSize: 48,
+      fontWeight: 'bold',
+      fill: 0xffd700,
+      stroke: 0x000000,
+      strokeThickness: 4,
+    });
+    
+    const reasonText = results.finishReason === 'king_defeated' 
+      ? 'König besiegt!' 
+      : results.finishReason === 'banner_captured' 
+        ? 'Banner erobert!' 
+        : 'Spiel beendet';
+    
+    const title = new PIXI.Text(`🎉 ${results.winnerName} gewinnt! 🎉`, titleStyle);
+    title.anchor.set(0.5);
+    title.position.set(this.camera.viewportWidth / 2, 80);
+    container.addChild(title);
+    
+    const reasonStyle = new PIXI.TextStyle({
+      fontFamily: 'Arial',
+      fontSize: 24,
+      fill: 0xffffff,
+    });
+    const reason = new PIXI.Text(reasonText, reasonStyle);
+    reason.anchor.set(0.5);
+    reason.position.set(this.camera.viewportWidth / 2, 140);
+    container.addChild(reason);
+    
+    // Results table header
+    const headerY = 200;
+    const colX = [100, 300, 500, 700, 900];
+    
+    const headerStyle = new PIXI.TextStyle({
+      fontFamily: 'Arial',
+      fontSize: 20,
+      fontWeight: 'bold',
+      fill: 0xffd700,
+    });
+    
+    const headers = ['Spieler', 'Einheiten', 'Kommandeure', 'Stärke', 'Gesamt'];
+    headers.forEach((text, i) => {
+      const header = new PIXI.Text(text, headerStyle);
+      header.anchor.set(0.5);
+      header.position.set(colX[i], headerY);
+      container.addChild(header);
+    });
+    
+    // Results rows
+    const rowStyle = new PIXI.TextStyle({
+      fontFamily: 'Arial',
+      fontSize: 18,
+      fill: 0xffffff,
+    });
+    
+    const winnerStyle = new PIXI.TextStyle({
+      fontFamily: 'Arial',
+      fontSize: 18,
+      fontWeight: 'bold',
+      fill: 0x2ecc71,
+    });
+    
+    results.scores.forEach((score: PlayerScore, index: number) => {
+      const y = headerY + 50 + (index * 40);
+      const isWinner = score.playerId === results.winner;
+      const style = isWinner ? winnerStyle : rowStyle;
+      
+      const cells = [
+        score.playerName + (isWinner ? ' 👑' : ''),
+        score.remainingUnits.toString(),
+        score.remainingCommanders.toString(),
+        score.strengthPoints.toString(),
+        score.totalScore.toString(),
+      ];
+      
+      cells.forEach((text, i) => {
+        const cell = new PIXI.Text(text, style);
+        cell.anchor.set(0.5);
+        cell.position.set(colX[i], y);
+        container.addChild(cell);
+      });
+    });
+    
+    // Click to continue text
+    const continueStyle = new PIXI.TextStyle({
+      fontFamily: 'Arial',
+      fontSize: 16,
+      fill: 0xaaaaaa,
+    });
+    const continueText = new PIXI.Text('Klicken zum Fortfahren', continueStyle);
+    continueText.anchor.set(0.5);
+    continueText.position.set(this.camera.viewportWidth / 2, this.camera.viewportHeight - 50);
+    container.addChild(continueText);
+    
+    // Make clickable to close
+    container.eventMode = 'static';
+    container.cursor = 'pointer';
+    container.hitArea = new PIXI.Rectangle(0, 0, this.camera.viewportWidth, this.camera.viewportHeight);
+    container.once('pointerdown', () => {
+      container.destroy({ children: true });
+    });
+    
+    this.app.stage.addChild(container);
   }
 
   /**

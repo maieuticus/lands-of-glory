@@ -24,6 +24,8 @@ import {
   createRNG,
   Banner,
   CombatResult,
+  calculateGameResults,
+  GameResults,
 } from '@lands-of-glory/game-core';
 import { GameRenderer, UIState, DragCallbacks } from '../renderer/game-renderer';
 import { CombatDiceAnimation } from '../renderer/combat-animation';
@@ -47,6 +49,16 @@ interface CombatLogEntry {
 }
 
 /**
+ * History entry for undo functionality
+ */
+interface HistoryEntry {
+  gameState: GameState;
+  combatLog: CombatLogEntry[];
+  action: 'move' | 'attack' | 'capture' | 'turn_end';
+  description: string;
+}
+
+/**
  * Game controller - PRODUCTION VERSION
  */
 export class GameController {
@@ -58,6 +70,8 @@ export class GameController {
   private logCallbacks: ((entry: CombatLogEntry) => void)[] = [];
   private onVictoryCallbacks: ((winner: string) => void)[] = [];
   private combatAnimation: CombatDiceAnimation;
+  private history: HistoryEntry[] = [];
+  private maxHistorySize = 20;
 
   constructor(gameState: GameState, renderer: GameRenderer) {
     this.gameState = gameState;
@@ -118,11 +132,80 @@ export class GameController {
    */
   initializeGame(): void {
     this.gameState = startGame(this.gameState);
+    // Save initial state
+    this.saveToHistory('turn_end', 'Game started');
     this.addLogEntry({
       type: 'turn_end',
       message: `Game started! ${this.gameState.players[0].name}'s turn.`,
     });
     this.render();
+  }
+
+  /**
+   * Save current state to history for undo functionality
+   */
+  private saveToHistory(action: HistoryEntry['action'], description: string): void {
+    // Deep clone game state
+    const stateCopy: GameState = {
+      ...this.gameState,
+      commanders: new Map(this.gameState.commanders),
+      banners: new Map(this.gameState.banners),
+      players: [...this.gameState.players],
+    };
+
+    const entry: HistoryEntry = {
+      gameState: stateCopy,
+      combatLog: [...this.combatLog],
+      action,
+      description,
+    };
+
+    this.history.push(entry);
+
+    // Keep only last N entries
+    if (this.history.length > this.maxHistorySize) {
+      this.history.shift();
+    }
+  }
+
+  /**
+   * Undo last action
+   */
+  undo(): boolean {
+    if (this.history.length <= 1) {
+      this.showError('Nothing to undo');
+      return false;
+    }
+
+    // Remove current state
+    this.history.pop();
+
+    // Restore previous state
+    const previousState = this.history[this.history.length - 1];
+    this.gameState = previousState.gameState;
+    this.combatLog = previousState.combatLog;
+
+    // Reset selection
+    this.selectedCommanderId = undefined;
+    this.uiState.selectedCommanderId = undefined;
+
+    this.showMessage(`Rückgängig: ${previousState.description}`, 'info');
+    this.render();
+    return true;
+  }
+
+  /**
+   * Check if undo is available
+   */
+  canUndo(): boolean {
+    return this.history.length > 1;
+  }
+
+  /**
+   * Get undo history for display
+   */
+  getUndoHistory(): string[] {
+    return this.history.map(h => h.description);
   }
 
   /**
@@ -202,6 +285,11 @@ export class GameController {
       case 'E':
         this.tryEndTurn();
         break;
+      case 'Z':
+        if (modifiers.ctrl) {
+          this.undo();
+        }
+        break;
       case 'ESCAPE':
         this.selectedCommanderId = undefined;
         this.uiState.selectedCommanderId = undefined;
@@ -244,9 +332,14 @@ export class GameController {
         return;
       }
 
-      const maxDistance = TROOP_STATS[commander.type].moveRange;
+      // Determine move range - empty commanders move like cavalry (2 tiles)
+      const hasActiveUnits = commander.units.some(
+        (u) => u !== null && u.status === 'active'
+      );
+      const maxDistance = hasActiveUnits ? TROOP_STATS[commander.type].moveRange : 2;
+      
       if (distance > maxDistance) {
-        this.showError(`Too far! Max ${maxDistance} tiles for ${commander.type}`);
+        this.showError(`Too far! Max ${maxDistance} tiles`);
         return;
       }
 
@@ -288,6 +381,9 @@ export class GameController {
       this.selectedCommanderId = undefined;
       this.uiState.selectedCommanderId = undefined;
 
+      // Save to history
+      this.saveToHistory('move', `${commander.type} moved to (${target.x}, ${target.y})`);
+
       // Add to combat log
       this.addLogEntry({
         type: 'move',
@@ -308,12 +404,25 @@ export class GameController {
   /**
    * Check if commander is held by enemy infantry
    * Per Spec 004: Infantry holds adjacent enemy commanders
+   * 
+   * EXCEPTION: Commander is NOT held if:
+   * 1. Commander has no units (empty commanders fight as cavalry and cannot be held)
+   * 2. There are multiple adjacent enemy commanders (not just the infantry holder)
+   * 3. The infantry owner allows movement (not implemented - requires UI)
    */
   private isCommanderHeld(commanderId: CommanderId): boolean {
     const commander = this.gameState.commanders.get(commanderId);
     if (!commander) return false;
 
-    // Check all adjacent positions for enemy infantry
+    // Empty commanders (no units) cannot be held - they fight as cavalry
+    const hasActiveUnits = commander.units.some(
+      (u) => u !== null && u.status === 'active'
+    );
+    if (!hasActiveUnits) {
+      return false;
+    }
+
+    // Check all adjacent positions for enemy commanders
     const adjacentPositions = [
       { x: commander.position.x - 1, y: commander.position.y },
       { x: commander.position.x + 1, y: commander.position.y },
@@ -325,12 +434,32 @@ export class GameController {
       { x: commander.position.x + 1, y: commander.position.y + 1 },
     ];
 
+    let adjacentEnemyInfantry: Commander | null = null;
+    let adjacentEnemyCount = 0;
+
     for (const [id, cmd] of this.gameState.commanders) {
       if (cmd.playerId !== commander.playerId &&
-          cmd.type === 'infantry' &&
           adjacentPositions.some(pos => pos.x === cmd.position.x && pos.y === cmd.position.y)) {
-        return true;
+        adjacentEnemyCount++;
+        
+        // Only infantry WITH active units can hold other commanders
+        // Empty commanders (even infantry type) fight as cavalry and cannot hold
+        if (cmd.type === 'infantry') {
+          const cmdHasActiveUnits = cmd.units.some(
+            (u) => u !== null && u.status === 'active'
+          );
+          if (cmdHasActiveUnits) {
+            adjacentEnemyInfantry = cmd;
+          }
+        }
       }
+    }
+
+    // Held only if:
+    // - There is exactly one adjacent enemy infantry
+    // - AND there are no other adjacent enemy commanders
+    if (adjacentEnemyInfantry && adjacentEnemyCount === 1) {
+      return true;
     }
 
     return false;
@@ -338,8 +467,14 @@ export class GameController {
 
   /**
    * Get the commander holding this commander (if any)
+   * Returns the holding commander only if this commander is actually held
    */
   private getHoldingCommander(commanderId: CommanderId): Commander | undefined {
+    // Only return holding commander if the commander is actually held
+    if (!this.isCommanderHeld(commanderId)) {
+      return undefined;
+    }
+
     const commander = this.gameState.commanders.get(commanderId);
     if (!commander) return undefined;
 
@@ -358,7 +493,13 @@ export class GameController {
       if (cmd.playerId !== commander.playerId &&
           cmd.type === 'infantry' &&
           adjacentPositions.some(pos => pos.x === cmd.position.x && pos.y === cmd.position.y)) {
-        return cmd;
+        // Only return if the infantry has active units (empty commanders cannot hold)
+        const cmdHasActiveUnits = cmd.units.some(
+          (u) => u !== null && u.status === 'active'
+        );
+        if (cmdHasActiveUnits) {
+          return cmd;
+        }
       }
     }
 
@@ -391,6 +532,38 @@ export class GameController {
         return;
       }
 
+      // Check if attacker is empty (no active units) - empty commanders fight as cavalry
+      const attackerHasActiveUnits = attacker.units.some(
+        (u) => u !== null && u.status === 'active'
+      );
+      
+      // Cavalry moves adjacent to target before attacking
+      // Empty commanders (fighting as cavalry) also move adjacent
+      if (attacker.type === 'cavalry' || !attackerHasActiveUnits) {
+        const dx = Math.abs(attacker.position.x - defender.position.x);
+        const dy = Math.abs(attacker.position.y - defender.position.y);
+        const distance = Math.max(dx, dy);
+        
+        if (distance > 1) {
+          // Find adjacent position to move to
+          const adjacentPos = this.findAdjacentPosition(attacker.position, defender.position);
+          if (adjacentPos) {
+            // Move attacker to adjacent position
+            const newCommanders = new Map(this.gameState.commanders);
+            newCommanders.set(attackerId, {
+              ...attacker,
+              position: adjacentPos,
+            });
+            this.gameState = {
+              ...this.gameState,
+              commanders: newCommanders,
+            };
+            const msg = !attackerHasActiveUnits ? 'Kommandeur (als Kavallerie) rückt vor!' : 'Kavallerie rückt vor!';
+            this.showMessage(msg, 'info');
+          }
+        }
+      }
+
       // Note: Held commanders can attack any target, not just the holder
 
       // Create RNG for combat
@@ -400,7 +573,9 @@ export class GameController {
       const combatResult = resolveCombat(this.gameState, attackerId, defenderId, rng);
 
       // Helper to translate troop type
-      const translateTroopType = (type: string): string => {
+      const translateTroopType = (type: string, hasUnits: boolean): string => {
+        // Empty commanders fight as cavalry
+        if (!hasUnits) return 'Kavallerie';
         switch (type) {
           case 'infantry': return 'Infanterie';
           case 'cavalry': return 'Kavallerie';
@@ -409,9 +584,18 @@ export class GameController {
         }
       };
 
+      // Check if commanders have units
+      const attackerHasUnits = attacker.units.some(
+        (u) => u !== null && u.status === 'active'
+      );
+      const defenderHasUnits = defender.units.some(
+        (u) => u !== null && u.status === 'active'
+      );
+
       // Get names and colors for animation
-      const attackerName = `${attacker.isKing ? 'König ' : ''}${translateTroopType(attacker.type)}`;
-      const defenderName = `${defender.isKing ? 'König ' : ''}${translateTroopType(defender.type)}`;
+      // Empty commanders are displayed as "Kavallerie"
+      const attackerName = `${attacker.isKing ? 'König ' : ''}${translateTroopType(attacker.type, attackerHasUnits)}`;
+      const defenderName = `${defender.isKing ? 'König ' : ''}${translateTroopType(defender.type, defenderHasUnits)}`;
       
       // Get player colors from array
       const attackerPlayer = this.gameState.players.find(p => p.id === attacker.playerId);
@@ -456,13 +640,16 @@ export class GameController {
     // Build result message and log
     this.logCombatResult(combatResult, attacker, defender);
 
-    this.selectedCommanderId = undefined;
-    this.uiState.selectedCommanderId = undefined;
+      this.selectedCommanderId = undefined;
+      this.uiState.selectedCommanderId = undefined;
 
-    // Check victory conditions
-    this.checkVictoryConditions();
+      // Save to history after combat
+      this.saveToHistory('attack', `${attacker.type} attacked ${defender.type}`);
 
-    this.render();
+      // Check victory conditions
+      this.checkVictoryConditions();
+
+      this.render();
   }
 
   /**
@@ -525,30 +712,72 @@ export class GameController {
         return;
       }
 
-      // Check range (must be adjacent - distance 1 for melee)
+      // Check if attacker has units (empty commanders fight as cavalry)
+      const attackerHasUnits = attacker.units.some(
+        (u) => u !== null && u.status === 'active'
+      );
+      
+      // Check range - cavalry (and empty commanders) can attack from distance 2
+      // Other units must be adjacent (distance 1)
       const distance = Math.max(
         Math.abs(attacker.position.x - banner.position.x),
         Math.abs(attacker.position.y - banner.position.y)
       );
+      
+      const maxAttackDistance = (attacker.type === 'cavalry' || !attackerHasUnits) ? 2 : 1;
 
-      if (distance > 1) {
-        this.showError('Must be adjacent to capture banner');
+      if (distance > maxAttackDistance) {
+        this.showError(`Must be within ${maxAttackDistance} tiles to capture banner`);
         return;
+      }
+      
+      // Cavalry moves adjacent to banner before capturing (if not already adjacent)
+      if ((attacker.type === 'cavalry' || !attackerHasUnits) && distance > 1) {
+        const adjacentPos = this.findAdjacentPosition(attacker.position, banner.position);
+        if (adjacentPos) {
+          // Move attacker to adjacent position
+          const newCommanders = new Map(this.gameState.commanders);
+          newCommanders.set(attackerId, {
+            ...attacker,
+            position: adjacentPos,
+          });
+          this.gameState = {
+            ...this.gameState,
+            commanders: newCommanders,
+          };
+          const msg = !attackerHasUnits ? 'Kommandeur (als Kavallerie) rückt zum Banner vor!' : 'Kavallerie rückt zum Banner vor!';
+          this.showMessage(msg, 'info');
+        }
       }
 
       // Check troop type (archers cannot capture banners - Spec 005)
-      if (attacker.type === 'archer') {
+      // Also check if empty commander - they fight as cavalry and CAN capture
+      const attackerHasUnitsForCheck = attacker.units.some(
+        (u) => u !== null && u.status === 'active'
+      );
+      if (attacker.type === 'archer' && attackerHasUnitsForCheck) {
         this.showError('Archers cannot capture banners in melee');
         return;
       }
 
-      // Capture the banner
+      // Reload attacker (position may have changed if cavalry moved)
+      const updatedAttacker = this.gameState.commanders.get(attackerId);
+      if (!updatedAttacker) {
+        this.showError('Attacker not found after movement');
+        return;
+      }
+
+      // Capture the banner - attacker moves to banner position
       const updatedBanners = new Map(this.gameState.banners);
       updatedBanners.set(banner.id, { ...banner, status: 'captured' });
 
-      // Mark attacker as having acted
+      // Move attacker to banner position and mark as acted
       const updatedCommanders = new Map(this.gameState.commanders);
-      updatedCommanders.set(attackerId, { ...attacker, hasActedThisTurn: true });
+      updatedCommanders.set(attackerId, { 
+        ...updatedAttacker, 
+        position: { ...banner.position },
+        hasActedThisTurn: true 
+      });
 
       this.gameState = {
         ...this.gameState,
@@ -565,6 +794,9 @@ export class GameController {
         type: 'capture',
         message: `${player?.name} captured the enemy banner!`,
       });
+
+      // Save to history
+      this.saveToHistory('capture', 'Banner captured');
 
       this.showMessage('Banner captured!', 'success');
 
@@ -598,6 +830,9 @@ export class GameController {
         message: `Turn ${this.gameState.turnNumber} - ${nextPlayer?.name}'s turn`,
       });
 
+      // Save to history
+      this.saveToHistory('turn_end', `Turn ended - ${nextPlayer?.name}'s turn`);
+
       this.showMessage(`Turn ended. ${nextPlayer?.name}'s turn.`, 'info');
       this.render();
     } catch (error) {
@@ -611,8 +846,10 @@ export class GameController {
 
   /**
    * Check and handle victory conditions
+   * Also checks if a king was defeated and ends the game immediately
    */
   private checkVictoryConditions(): void {
+    // Check if game is already finished
     if (this.gameState.gameStatus === 'finished') {
       const winner = getWinner(this.gameState);
       if (winner) {
@@ -625,8 +862,161 @@ export class GameController {
         this.onVictoryCallbacks.forEach(cb => cb(winner.name));
 
         this.showMessage(`🎉 ${winner.name} wins!`, 'success');
+        
+        // Show game results
+        this.showGameResults();
+      }
+      return;
+    }
+    
+    // Check if a king was defeated - end game immediately
+    for (const player of this.gameState.players) {
+      // Check if player's king still exists
+      let kingExists = false;
+      for (const commanderId of player.commanders) {
+        const commander = this.gameState.commanders.get(commanderId);
+        if (commander?.isKing) {
+          kingExists = true;
+          break;
+        }
+      }
+      
+      if (!kingExists) {
+        // King was defeated - end game
+        const winner = this.gameState.players.find(p => p.id !== player.id);
+        if (winner) {
+          // Set game as finished
+          this.gameState = {
+            ...this.gameState,
+            gameStatus: 'finished',
+            winner: winner.id,
+          };
+          
+          this.addLogEntry({
+            type: 'victory',
+            message: `🎉 ${winner.name} wins! König ${player.name} wurde besiegt!`,
+          });
+
+          // Notify callbacks
+          this.onVictoryCallbacks.forEach(cb => cb(winner.name));
+
+          this.showMessage(`🎉 ${winner.name} wins! König besiegt!`, 'success');
+          
+          // Show game results
+          this.showGameResults();
+        }
+        return;
       }
     }
+    
+    // Check if a banner was captured
+    for (const player of this.gameState.players) {
+      let hasStandingBanner = false;
+      for (const banner of this.gameState.banners.values()) {
+        if (banner.playerId === player.id && banner.status === 'standing') {
+          hasStandingBanner = true;
+          break;
+        }
+      }
+      
+      if (!hasStandingBanner) {
+        // Banner captured - end game
+        const winner = this.gameState.players.find(p => p.id !== player.id);
+        if (winner) {
+          // Set game as finished
+          this.gameState = {
+            ...this.gameState,
+            gameStatus: 'finished',
+            winner: winner.id,
+          };
+          
+          this.addLogEntry({
+            type: 'victory',
+            message: `🎉 ${winner.name} wins! Banner von ${player.name} erobert!`,
+          });
+
+          // Notify callbacks
+          this.onVictoryCallbacks.forEach(cb => cb(winner.name));
+
+          this.showMessage(`🎉 ${winner.name} wins! Banner erobert!`, 'success');
+          
+          // Show game results
+          this.showGameResults();
+        }
+        return;
+      }
+    }
+  }
+  
+  /**
+   * Show game results dialog
+   */
+  private showGameResults(): void {
+    const results = calculateGameResults(this.gameState);
+    if (!results) return;
+    
+    // Create results display in the renderer
+    this.renderer.showGameResults(results);
+  }
+
+  /**
+   * Find adjacent position to target for cavalry to move to before attacking
+   */
+  private findAdjacentPosition(from: Position, to: Position): Position | undefined {
+    // Get all 8 adjacent positions around target
+    const adjacentPositions = [
+      { x: to.x - 1, y: to.y },
+      { x: to.x + 1, y: to.y },
+      { x: to.x, y: to.y - 1 },
+      { x: to.x, y: to.y + 1 },
+      { x: to.x - 1, y: to.y - 1 },
+      { x: to.x + 1, y: to.y - 1 },
+      { x: to.x - 1, y: to.y + 1 },
+      { x: to.x + 1, y: to.y + 1 },
+    ];
+
+    // Filter out positions that are occupied
+    const availablePositions = adjacentPositions.filter(pos => {
+      // Check if position is within board bounds
+      if (pos.x < 0 || pos.x >= 24 || pos.y < 0 || pos.y >= 24) {
+        return false;
+      }
+
+      // Check if position is occupied by another commander
+      for (const cmd of this.gameState.commanders.values()) {
+        if (cmd.position.x === pos.x && cmd.position.y === pos.y) {
+          return false;
+        }
+      }
+
+      // Check if position has a standing banner
+      for (const banner of this.gameState.banners.values()) {
+        if (banner.position.x === pos.x &&
+            banner.position.y === pos.y &&
+            banner.status === 'standing') {
+          return false;
+        }
+      }
+
+      return true;
+    });
+
+    // Find the closest available position to the attacker
+    let closestPos: Position | undefined;
+    let minDistance = Infinity;
+
+    for (const pos of availablePositions) {
+      const distance = Math.max(
+        Math.abs(from.x - pos.x),
+        Math.abs(from.y - pos.y)
+      );
+      if (distance < minDistance) {
+        minDistance = distance;
+        closestPos = pos;
+      }
+    }
+
+    return closestPos;
   }
 
   /**

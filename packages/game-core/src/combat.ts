@@ -81,12 +81,12 @@ const TIE_WINS: Record<TroopType, Record<TroopType, boolean>> = {
   infantry: {
     infantry: false,  // Attacker must exceed defender
     cavalry: true,    // Inf vs Cav: attacker wins on tie
-    archer: false,
+    archer: true,     // Inf vs Archer: attacker wins on tie
   },
   cavalry: {
     infantry: false,
     cavalry: false,
-    archer: false,
+    archer: true,     // Cav vs Archer: attacker wins on tie
   },
   archer: {
     infantry: false,
@@ -153,14 +153,22 @@ export function resolveCombat(
     defender.type
   );
 
-  // Determine casualties
+    // Determine casualties
   const attackerCasualties: UnitId[] = [];
   const defenderCasualties: UnitId[] = [];
+
+  // Check if attacker is archer - archers never suffer casualties when attacking
+  // Only the defender can have casualties when archers attack
+  const isArcherAttacking = attacker.type === 'archer';
 
   for (const pair of pairs) {
     if (!pair.attackerWins) {
       // Attacker loses this pair
-      attackerCasualties.push(pair.attackerDie.unitId);
+      // If archers are attacking, they never suffer casualties
+      if (!isArcherAttacking) {
+        attackerCasualties.push(pair.attackerDie.unitId);
+      }
+      // If archers are attacking and lose, no one dies (defender is safe too in this pair)
     } else {
       // Defender loses this pair
       defenderCasualties.push(pair.defenderDie.unitId);
@@ -384,7 +392,20 @@ export function applyCombatResult(
   if (result.attackerCommanderDefeated) {
     newCommanders.delete(result.attackerId);
   }
+  
+  // If defender is defeated and attacker is NOT an archer, attacker moves to defender's position
   if (result.defenderCommanderDefeated) {
+    const defender = newCommanders.get(result.defenderId);
+    const attacker = newCommanders.get(result.attackerId);
+    
+    if (defender && attacker && attacker.type !== 'archer') {
+      // Attacker moves to defender's position
+      newCommanders.set(result.attackerId, {
+        ...attacker,
+        position: { ...defender.position },
+      });
+    }
+    
     newCommanders.delete(result.defenderId);
   }
 
@@ -444,6 +465,11 @@ export function canAttack(
     return { valid: false, reason: 'Target out of range' };
   }
 
+  // Archers can only attack at range 2-3, not at range 1
+  if (attacker.type === 'archer' && distance < 2) {
+    return { valid: false, reason: 'Archers must attack from range 2-3' };
+  }
+
   // Check if attacker has any active units (or is empty - fights as cavalry)
   const hasActiveUnits = attacker.units.some(
     (u) => u !== null && u.status === 'active'
@@ -466,7 +492,7 @@ function getAttackRange(troopType: TroopType): number {
     case 'cavalry':
       return 2;
     case 'archer':
-      return 2;
+      return 3; // Archers can attack at range 2-3
     default:
       return 1;
   }

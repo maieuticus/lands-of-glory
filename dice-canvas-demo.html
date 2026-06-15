@@ -141,10 +141,25 @@
 
         .dice-column {
             text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .dice-column-header {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 5px;
+            margin-bottom: 10px;
+        }
+
+        .dice-column-icon {
+            font-size: 28px;
         }
 
         .dice-column h3 {
-            margin-bottom: 10px;
+            margin: 0;
             color: #f1c40f;
             font-size: 1rem;
         }
@@ -345,11 +360,17 @@
 
             <div class="canvas-container">
                 <div class="dice-column">
-                    <h3>Würfel Angreifer</h3>
+                    <div class="dice-column-header">
+                        <div class="dice-column-icon">⚔️</div>
+                        <h3>Angreifer</h3>
+                    </div>
                     <div id="canvas-attacker-1" class="dice-canvas"></div>
                 </div>
                 <div class="dice-column">
-                    <h3>Würfel Verteidiger</h3>
+                    <div class="dice-column-header">
+                        <div class="dice-column-icon">🛡️</div>
+                        <h3>Verteidiger</h3>
+                    </div>
                     <div id="canvas-defender-1" class="dice-canvas"></div>
                 </div>
             </div>
@@ -401,11 +422,17 @@
 
             <div class="canvas-container">
                 <div class="dice-column">
-                    <h3>Würfel König</h3>
+                    <div class="dice-column-header">
+                        <div class="dice-column-icon">⚔️</div>
+                        <h3>König</h3>
+                    </div>
                     <div id="canvas-attacker-2" class="dice-canvas"></div>
                 </div>
                 <div class="dice-column">
-                    <h3>Würfel Verteidiger</h3>
+                    <div class="dice-column-header">
+                        <div class="dice-column-icon">🛡️</div>
+                        <h3>Verteidiger</h3>
+                    </div>
                     <div id="canvas-defender-2" class="dice-canvas"></div>
                 </div>
             </div>
@@ -503,7 +530,7 @@
                 return container;
             }
 
-            createCombatDice(naturalValue, bonusPoints, kingBonus, isAttacker) {
+            createCombatDice(naturalValue, bonusPoints, kingBonus, isAttacker, isLoss = false) {
                 const container = new PIXI.Container();
                 
                 const playerColor = isAttacker ? 0xffffff : 0x000000;
@@ -511,6 +538,13 @@
                 container.addChild(dice);
 
                 const { size } = this.config;
+
+                // Verlust-Marker (X) links vom Würfel
+                if (isLoss) {
+                    const lossMarker = this.createBonusLabel('❌', 0xe74c3c);
+                    lossMarker.position.set(-size / 2 - 15, 0);
+                    container.addChild(lossMarker);
+                }
 
                 // Bonus-Indikatoren
                 if (bonusPoints > 0) {
@@ -615,15 +649,19 @@
         }
 
         // Würfel zeichnen
-        function renderDice(app, diceData, startX, startY) {
+        function renderDice(app, diceData, startX, startY, losses) {
             app.stage.removeChildren();
             
             diceData.forEach((data, index) => {
+                // Prüfe ob dieser Würfel verliert
+                const isLoss = losses && losses[index];
+                
                 const dice = diceRenderer.createCombatDice(
                     data.value,
                     data.bonus || 0,
                     data.kingBonus || 0,
-                    data.isAttacker
+                    data.isAttacker,
+                    isLoss
                 );
                 
                 const spacing = 70;
@@ -661,6 +699,8 @@
             const attackerDice = [];
             const defenderDice = [];
             const pairs = [];
+            const attackerLosses = [];
+            const defenderLosses = [];
             
             for (let i = 0; i < numDice; i++) {
                 const attValue = rollDice();
@@ -687,16 +727,24 @@
                 const defTotal = defValue + defBonus;
                 
                 let result, resultClass;
+                let attLoss = false;
+                let defLoss = false;
+                
                 if (attTotal > defTotal) {
                     result = 'Angreifer ✓';
                     resultClass = 'win';
+                    defLoss = true;
                 } else if (defTotal > attTotal) {
                     result = 'Verteidiger ✓';
                     resultClass = 'loss';
+                    attLoss = true;
                 } else {
                     result = 'Unentschieden';
                     resultClass = 'tie';
                 }
+                
+                attackerLosses.push(attLoss);
+                defenderLosses.push(defLoss);
                 
                 pairs.push({
                     attacker: { value: attValue, bonus: attBonus, king: kingBonus > 0 },
@@ -706,7 +754,7 @@
                 });
             }
             
-            return { attackerDice, defenderDice, pairs };
+            return { attackerDice, defenderDice, pairs, attackerLosses, defenderLosses };
         }
 
         // Tabelle rendern
@@ -762,9 +810,9 @@
                 apps[`defender-${combatId}`] = initCanvas(`canvas-defender-${combatId}`, 300, 80);
             }
             
-            // Würfel rendern
-            renderDice(apps[`attacker-${combatId}`], combat.attackerDice, 35, 40);
-            renderDice(apps[`defender-${combatId}`], combat.defenderDice, 35, 40);
+            // Würfel rendern (mit Verlust-Markern)
+            renderDice(apps[`attacker-${combatId}`], combat.attackerDice, 35, 40, combat.attackerLosses);
+            renderDice(apps[`defender-${combatId}`], combat.defenderDice, 35, 40, combat.defenderLosses);
             
             // Tabelle aktualisieren
             const losses = renderTable(`table-body-${combatId}`, combat.pairs);

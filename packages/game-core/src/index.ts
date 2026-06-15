@@ -29,6 +29,7 @@ export type {
   MoveResult,
   AttackResult,
   GameConfig,
+  ArmyBuilderConfig,
 } from './types';
 
 export {
@@ -103,5 +104,38 @@ export {
   applyCombatResult,
   canAttack,
 } from './combat';
+
+// Re-export scoring types and functions
+export type { PlayerScore, GameResults } from './scoring';
+
+export {
+  calculateGameResults,
+  getPlayerUnitBreakdown,
+} from './scoring';
+
+// Re-export army builder types and functions
+export type {
+  CommanderBuilderType,
+  UnitBuildConfig,
+  CommanderBuildConfig,
+  ArmyConfig,
+  ArmyCostBreakdown,
+  ArmyValidationResult,
+} from './army-builder';
+
+export {
+  ARMY_BUILDER_COSTS,
+  DEFAULT_STARTING_BUDGET,
+  calculateArmyCost,
+  validateArmyConfig,
+  buildArmy,
+  getDefaultArmyConfig,
+  getDefaultArmyCost,
+  getMinimalArmyConfig,
+  createEmptyCommanderConfig,
+  addUnitToCommanderConfig,
+  removeUnitFromCommanderConfig,
+  setUnitBonusPoints,
+} from './army-builder';
 
 export const GAME_CORE_VERSION = '1.0.0';

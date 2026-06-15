@@ -2,75 +2,126 @@
  * apps/prototype/src/main.ts
  *
  * Application entry point
- * Initializes the game and starts the rendering loop
+ * Initializes the game with army builder and starts the rendering loop
  */
 
-import { createGame, startGame, GameConfig, TROOP_STATS } from '@lands-of-glory/game-core';
+import { 
+  createGame, 
+  startGame, 
+  GameConfig, 
+  TROOP_STATS,
+  ArmyConfig,
+  PlayerConfig,
+  DEFAULT_STARTING_BUDGET,
+} from '@lands-of-glory/game-core';
 import { createGameRenderer } from './renderer/game-renderer';
 import { createGameController } from './controller/game-controller';
+import { showArmyBuilder } from './army-builder-screen';
 import './style.css';
 
 // Game configuration
-const gameConfig: GameConfig = {
-  players: [
-    { name: 'Player 1', color: '#FF0000' },
-    { name: 'Player 2', color: '#0000FF' },
-  ],
-};
+const playerConfigs: PlayerConfig[] = [
+  { name: 'Player 1', color: '#FF4444' },
+  { name: 'Player 2', color: '#4444FF' },
+];
+
+const ARMY_BUILDER_ENABLED = true;
+const STARTING_BUDGET = DEFAULT_STARTING_BUDGET;
 
 // Track last selected commander to detect changes
 let lastSelectedCommanderId: string | undefined = undefined;
 
 // Initialize game
-function initGame(): void {
+async function initGame(): Promise<void> {
   console.log('🎮 Initializing Lands of Glory...');
 
   try {
-    // Create renderer
     const container = document.getElementById('app');
     if (!container) {
       throw new Error('App container not found');
     }
 
-    const renderer = createGameRenderer('app', window.innerWidth, window.innerHeight, 48);
+    let gameConfig: GameConfig;
 
-    // Create controller
-    const controller = createGameController(gameConfig, renderer);
+    if (ARMY_BUILDER_ENABLED) {
+      // Show army builder screen
+      console.log('🎨 Showing army builder...');
+      container.innerHTML = '';
+      
+      try {
+        const armyConfigs = await showArmyBuilder('app', playerConfigs, STARTING_BUDGET);
+        
+        // Create game config with custom armies
+        gameConfig = {
+          players: playerConfigs.map((player, index) => ({
+            ...player,
+            armyConfig: armyConfigs[index],
+          })),
+        };
+        
+        console.log('✅ Army configurations complete');
+      } catch (error) {
+        // User cancelled army builder, use default armies
+        console.log('ℹ️ Army builder cancelled, using defaults');
+        gameConfig = { players: playerConfigs };
+      }
+    } else {
+      // Use default armies
+      gameConfig = { players: playerConfigs };
+    }
 
-    // Create unit info panel
-    createUnitInfoPanel();
+    // Clear container and start game
+    container.innerHTML = '';
+    await startGameWithConfig(gameConfig);
 
-    // Initialize and start game
-    controller.initializeGame();
-
-    // Setup window resize handling
-    window.addEventListener('resize', () => {
-      const width = window.innerWidth;
-      const height = window.innerHeight;
-      // Renderer handles resize internally
-    });
-
-    // Setup keyboard controls
-    setupKeyboardControls(controller);
-
-    // Setup mouse controls for camera
-    setupCameraControls(controller, renderer);
-
-    // Start render loop to check for selection changes
-    startSelectionMonitor(controller);
-
-    console.log('✅ Game initialized successfully!');
-    console.log('🎮 Controls:');
-    console.log('  - Drag commander to move/attack');
-    console.log('  - Mouse wheel to zoom');
-    console.log('  - Right-click drag to pan camera');
-    console.log('  - D: Toggle debug mode');
-    console.log('  - E: End turn');
-    console.log('  - ESC: Deselect');
   } catch (error) {
     console.error('❌ Failed to initialize game:', error);
     showErrorMessage(error instanceof Error ? error.message : 'Unknown error');
   }
+}
+
+/**
+ * Start the game with the given configuration
+ */
+async function startGameWithConfig(gameConfig: GameConfig): Promise<void> {
+  console.log('🎲 Starting game...');
+
+  // Create renderer
+  const renderer = createGameRenderer('app', window.innerWidth, window.innerHeight, 48);
+
+  // Create controller
+  const controller = createGameController(gameConfig, renderer);
+
+  // Create unit info panel
+  createUnitInfoPanel();
+
+  // Initialize and start game
+  controller.initializeGame();
+
+  // Setup window resize handling
+  window.addEventListener('resize', () => {
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+    // Renderer handles resize internally
+  });
+
+  // Setup keyboard controls
+  setupKeyboardControls(controller);
+
+  // Setup mouse controls for camera
+  setupCameraControls(controller, renderer);
+
+  // Start render loop to check for selection changes
+  startSelectionMonitor(controller);
+
+  console.log('✅ Game initialized successfully!');
+  console.log('🎮 Controls:');
+  console.log('  - Drag commander to move/attack');
+  console.log('  - Mouse wheel to zoom');
+  console.log('  - Right-click drag to pan camera');
+  console.log('  - D: Toggle debug mode');
+  console.log('  - E: End turn');
+  console.log('  - ESC: Deselect');
 }
 
 /**
