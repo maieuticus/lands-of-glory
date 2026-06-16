@@ -22,13 +22,20 @@ html, body {
 #app {
   width: 100vw;
   height: 100vh;
-  position: relative;
+  position: fixed;
+  top: 0;
+  left: 0;
+  overflow: hidden;
 }
 
 canvas {
-  display: block;
+  display: block !important;
   width: 100% !important;
   height: 100% !important;
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  z-index: 9999 !important;
 }
 
 /* UI Overlay Styles */
@@ -48,6 +55,7 @@ canvas {
   border: 0.25px solid rgba(255, 255, 255, 0.2);
   border-radius: 8px;
   padding: 12px;
+  -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
 }
 
@@ -187,6 +195,7 @@ canvas {
   border: 0.25px solid rgba(255, 255, 255, 0.2);
   border-radius: 8px;
   padding: 12px;
+  -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
 }
 

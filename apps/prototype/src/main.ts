@@ -2,7 +2,7 @@
  * apps/prototype/src/main.ts
  *
  * Application entry point
- * Initializes the game with army builder and starts the rendering loop
+ * Initializes the game with start screen and menu options
  */
 
 import { 
@@ -17,19 +17,103 @@ import {
 import { createGameRenderer } from './renderer/game-renderer';
 import { createGameController } from './controller/game-controller';
 import { showArmyBuilder } from './army-builder-screen';
+import { showStartScreen, GameOptions, MenuSelection } from './start-screen';
+import { applyUIScale } from './ui-scale';
 import './style.css';
 
-// Game configuration
-const playerConfigs: PlayerConfig[] = [
-  { name: 'Player 1', color: '#FF4444' },
-  { name: 'Player 2', color: '#4444FF' },
+// All available player configurations
+const ALL_PLAYER_CONFIGS: PlayerConfig[] = [
+  { name: 'Spieler 1', color: '#FF4444' },
+  { name: 'Spieler 2', color: '#4444FF' },
+  { name: 'Spieler 3', color: '#44FF44' },
+  { name: 'Spieler 4', color: '#FFD700' },
 ];
 
-const ARMY_BUILDER_ENABLED = true;
 const STARTING_BUDGET = DEFAULT_STARTING_BUDGET;
+
+/**
+ * Get player configs based on count
+ */
+function getPlayerConfigs(count: number): PlayerConfig[] {
+  return ALL_PLAYER_CONFIGS.slice(0, count);
+}
+
+// Global game options (set from start screen)
+export let gameOptions: GameOptions = {
+  useTextures: true,
+  enableSound: true,
+  showGrid: true,
+};
+
+// Re-export GameOptions type
+export type { GameOptions };
 
 // Track last selected commander to detect changes
 let lastSelectedCommanderId: string | undefined = undefined;
+
+// Track animation frame ID for cleanup
+let selectionMonitorId: number | null = null;
+
+// Track all event listeners for cleanup
+let gameCleanupFunctions: (() => void)[] = [];
+let currentPixiApp: any = null;
+let currentRenderer: any = null;
+
+/**
+ * Cleanup all game resources before starting a new game
+ */
+function cleanupGame(): void {
+  console.log('🧹 Cleaning up previous game...');
+  
+  // Cancel animation frames
+  if (selectionMonitorId !== null) {
+    cancelAnimationFrame(selectionMonitorId);
+    selectionMonitorId = null;
+  }
+  
+  // Remove all registered event listeners
+  gameCleanupFunctions.forEach(cleanup => {
+    try {
+      cleanup();
+    } catch (e) {
+      // Ignore cleanup errors
+    }
+  });
+  gameCleanupFunctions = [];
+  
+  // Destroy renderer
+  if (currentRenderer) {
+    try {
+      currentRenderer.destroy();
+      console.log('🧹 Renderer destroyed');
+    } catch (e) {
+      console.warn('Error destroying renderer:', e);
+    }
+    currentRenderer = null;
+  }
+
+  // Destroy PIXI application
+  if (currentPixiApp) {
+    try {
+      currentPixiApp.destroy(true, { children: true, texture: true, baseTexture: true });
+      console.log('🧹 PIXI app destroyed');
+    } catch (e) {
+      console.warn('Error destroying PIXI app:', e);
+    }
+    currentPixiApp = null;
+  }
+  
+  // Clear container
+  const container = document.getElementById('app');
+  if (container) {
+    container.innerHTML = '';
+  }
+  
+  // Reset last selected commander
+  lastSelectedCommanderId = undefined;
+  
+  console.log('🧹 Cleanup complete');
+}
 
 // Initialize game
 async function initGame(): Promise<void> {
@@ -40,39 +124,104 @@ async function initGame(): Promise<void> {
     if (!container) {
       throw new Error('App container not found');
     }
+    
+    // Ensure container has proper styles
+    container.style.width = '100vw';
+    container.style.height = '100vh';
+    container.style.position = 'relative';
+    container.style.overflow = 'hidden';
 
-    let gameConfig: GameConfig;
-
-    if (ARMY_BUILDER_ENABLED) {
-      // Show army builder screen
-      console.log('🎨 Showing army builder...');
-      container.innerHTML = '';
+    // Show start screen
+    console.log('Creating start screen...');
+    const startScreen = showStartScreen('app', async (selection, options) => {
+      console.log('⭐ START SCREEN CALLBACK FIRED!');
+      console.log('🎮 Selected:', selection, 'with options:', options);
       
-      try {
-        const armyConfigs = await showArmyBuilder('app', playerConfigs, STARTING_BUDGET);
-        
-        // Create game config with custom armies
-        gameConfig = {
-          players: playerConfigs.map((player, index) => ({
-            ...player,
-            armyConfig: armyConfigs[index],
-          })),
-        };
-        
-        console.log('✅ Army configurations complete');
-      } catch (error) {
-        // User cancelled army builder, use default armies
-        console.log('ℹ️ Army builder cancelled, using defaults');
-        gameConfig = { players: playerConfigs };
+      // Save options globally
+      gameOptions = options;
+      
+      // Hide start screen
+      console.log('Hiding start screen...');
+      startScreen.hide();
+      console.log('Start screen hidden');
+      
+      // Handle menu selection
+      if (selection === 'options') {
+        // Options already saved, show start screen again
+        startScreen.show();
+        return;
       }
-    } else {
-      // Use default armies
-      gameConfig = { players: playerConfigs };
-    }
-
-    // Clear container and start game
-    container.innerHTML = '';
-    await startGameWithConfig(gameConfig);
+      
+      if (selection === 'army-builder') {
+        // Hide start screen first
+        startScreen.hide();
+        container.innerHTML = '';
+        container.style.display = 'block';
+        container.style.width = '100vw';
+        container.style.height = '100vh';
+        container.style.position = 'fixed';
+        container.style.top = '0';
+        container.style.left = '0';
+        
+        const activePlayers = getPlayerConfigs(gameOptions.playerCount);
+        
+        // Show army builder
+        try {
+          const result = await showArmyBuilder('app', activePlayers, STARTING_BUDGET);
+          const armyConfigs = result.configs;
+          const selectedBudget = result.budget;
+          
+          // Create game config with custom armies and budget
+          const gameConfig: GameConfig = {
+            players: activePlayers.map((player, index) => ({
+              ...player,
+              armyConfig: armyConfigs[index],
+            })),
+            startingBudget: selectedBudget,
+          };
+          
+          console.log('💰 Budget from army builder:', selectedBudget);
+          console.log('💰 Game config startingBudget:', (gameConfig as any).startingBudget);
+          console.log('💰 Army costs:', armyConfigs.map((a, i) => `Player ${i+1}: ${a.commanders.reduce((sum, c) => sum + c.slots.filter(s => s.hasUnit).length, 0)} units`));
+          
+          // Cleanup and start game
+          cleanupGame();
+          await startGameWithConfig(gameConfig);
+        } catch (error) {
+          // User cancelled, show start screen again
+          console.log('ℹ️ Army builder cancelled');
+          startScreen.show();
+        }
+      } else if (selection === 'quick-start') {
+        // Quick start with default armies
+        console.log('⚡ Quick start selected, preparing game...');
+        const activePlayers = getPlayerConfigs(gameOptions.playerCount);
+        const gameConfig: GameConfig = { players: activePlayers };
+        
+        // Cleanup previous game if any
+        cleanupGame();
+        
+        // Hide start screen first
+        console.log('Hiding start screen...');
+        startScreen.hide();
+        
+        // Reset container display after hide() set it to 'none'
+        container.style.display = 'block';
+        container.style.width = '100vw';
+        container.style.height = '100vh';
+        container.style.position = 'fixed';
+        container.style.top = '0';
+        container.style.left = '0';
+        container.style.overflow = 'hidden';
+        console.log('Container display reset:', container.style.display);
+        
+        // Force a small delay to ensure DOM is updated
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        console.log('Starting game with config...');
+        await startGameWithConfig(gameConfig);
+      }
+    });
 
   } catch (error) {
     console.error('❌ Failed to initialize game:', error);
@@ -84,44 +233,141 @@ async function initGame(): Promise<void> {
  * Start the game with the given configuration
  */
 async function startGameWithConfig(gameConfig: GameConfig): Promise<void> {
-  console.log('🎲 Starting game...');
+  // Apply UI scale for in-game UI
+  applyUIScale(gameOptions.diceSize);
+  console.log('🎲 Starting game with textures:', gameOptions.useTextures);
+  
+  // Declare variables outside try block so they're available in catch and after
+  let controller: ReturnType<typeof createGameController> | null = null;
+  let renderer: ReturnType<typeof createGameRenderer> | null = null;
+  
+  try {
+    // Ensure container is ready
+    const container = document.getElementById('app');
+    if (!container) {
+      throw new Error('App container not found when starting game');
+    }
+    
+    console.log('Container before renderer:', container.innerHTML.substring(0, 100));
+    console.log('Container dimensions:', container.clientWidth, 'x', container.clientHeight);
 
-  // Create renderer
-  const renderer = createGameRenderer('app', window.innerWidth, window.innerHeight, 48);
+    // Create renderer with options
+    console.log('Creating renderer...');
+    renderer = createGameRenderer('app', window.innerWidth, window.innerHeight, 48, {
+      useTextures: gameOptions.useTextures,
+      showGrid: gameOptions.showGrid,
+    });
+    
+    // Store PIXI app and renderer for cleanup
+    currentPixiApp = renderer.getApp();
+    currentRenderer = renderer;
+    console.log('🧹 PIXI app and renderer stored for cleanup');
+    
+    console.log('Renderer created, checking for canvas...');
+    const canvas = container.querySelector('canvas');
+    console.log('Canvas found:', !!canvas, 'Size:', canvas?.width, 'x', canvas?.height);
+    
+    if (!canvas) {
+      throw new Error('Canvas was not created!');
+    }
 
-  // Create controller
-  const controller = createGameController(gameConfig, renderer);
+    // Create controller
+    console.log('Creating game controller...');
+    controller = createGameController(gameConfig, renderer, gameOptions.diceSize);
 
-  // Create unit info panel
-  createUnitInfoPanel();
+    // Create unit info panel
+    console.log('Creating unit info panel...');
+    createUnitInfoPanel();
 
-  // Initialize and start game
-  controller.initializeGame();
+    // Initialize and start game
+    console.log('Initializing game controller...');
+    controller.initializeGame();
+    console.log('Game controller initialized');
+    
+    // Force initial render with error handling
+    console.log('Rendering first frame...');
+    const gameState = controller.getGameState();
+    if (!gameState) {
+      throw new Error('Game state is null after initialization!');
+    }
+    console.log('Game state:', {
+      turn: gameState.turn,
+      commanders: gameState.commanders.size,
+      banners: gameState.banners.size,
+      players: gameState.players.length
+    });
+    
+    renderer.render(gameState, { debugEnabled: false });
+    console.log('✅ First frame rendered successfully');
+    
+    // DEBUG: Force show canvas
+    const canvasEl = document.querySelector('canvas');
+    if (canvasEl) {
+      console.log('🔧 DEBUG: Canvas found, forcing visibility...');
+      const canvas = canvasEl as HTMLCanvasElement;
+      
+      // Get canvas position and size
+      const rect = canvas.getBoundingClientRect();
+      console.log('🔧 Canvas rect:', {
+        top: rect.top,
+        left: rect.left,
+        width: rect.width,
+        height: rect.height,
+        right: rect.right,
+        bottom: rect.bottom
+      });
+      
+      // Force styles
+      canvas.style.display = 'block';
+      canvas.style.visibility = 'visible';
+      canvas.style.opacity = '1';
+      canvas.style.zIndex = '999999';
+      canvas.style.position = 'fixed';
+      canvas.style.top = '0';
+      canvas.style.left = '0';
+      canvas.style.width = '100vw';
+      canvas.style.height = '100vh';
+      
+      console.log('🔧 DEBUG: Canvas should now be visible with red border!');
+      console.log('🔧 Canvas computed style:', window.getComputedStyle(canvas).cssText.substring(0, 200));
+    } else {
+      console.error('❌ DEBUG: No canvas found in DOM!');
+    }
 
-  // Setup window resize handling
-  window.addEventListener('resize', () => {
-    const width = window.innerWidth;
-    const height = window.innerHeight;
-    // Renderer handles resize internally
-  });
+    // Setup window resize handling
+    const resizeHandler = () => {
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+      // Renderer handles resize internally
+    };
+    window.addEventListener('resize', resizeHandler);
+    gameCleanupFunctions.push(() => {
+      window.removeEventListener('resize', resizeHandler);
+    });
 
-  // Setup keyboard controls
-  setupKeyboardControls(controller);
+    // Setup keyboard controls
+    setupKeyboardControls(controller);
 
-  // Setup mouse controls for camera
-  setupCameraControls(controller, renderer);
+    // Setup mouse controls for camera
+    setupCameraControls(controller, renderer);
 
-  // Start render loop to check for selection changes
-  startSelectionMonitor(controller);
+    // Start render loop to check for selection changes
+    startSelectionMonitor(controller);
 
-  console.log('✅ Game initialized successfully!');
-  console.log('🎮 Controls:');
-  console.log('  - Drag commander to move/attack');
-  console.log('  - Mouse wheel to zoom');
-  console.log('  - Right-click drag to pan camera');
-  console.log('  - D: Toggle debug mode');
-  console.log('  - E: End turn');
-  console.log('  - ESC: Deselect');
+    console.log('✅ Game initialized successfully!');
+    console.log('🎮 Controls:');
+    console.log('  - Drag commander to move/attack');
+    console.log('  - Mouse wheel to zoom');
+    console.log('  - Right-click drag to pan camera');
+    console.log('  - D: Toggle debug mode');
+    console.log('  - E: End turn');
+    console.log('  - ESC: Deselect');
+    
+  } catch (error) {
+    console.error('❌ Error during game startup:', error);
+    showErrorMessage('Fehler beim Starten des Spiels: ' + (error instanceof Error ? error.message : 'Unbekannter Fehler'));
+    return;
+  }
 }
 
 /**
@@ -162,6 +408,11 @@ function createUnitInfoPanel(): void {
  * Monitor selection changes and update the info panel
  */
 function startSelectionMonitor(controller: ReturnType<typeof createGameController>): void {
+  // Stop previous monitor if exists
+  if (selectionMonitorId !== null) {
+    cancelAnimationFrame(selectionMonitorId);
+  }
+  
   const checkSelection = () => {
     const uiState = controller.getUIState();
     const currentSelection = uiState.selectedCommanderId;
@@ -172,10 +423,10 @@ function startSelectionMonitor(controller: ReturnType<typeof createGameControlle
       updateUnitInfoPanel(controller);
     }
     
-    requestAnimationFrame(checkSelection);
+    selectionMonitorId = requestAnimationFrame(checkSelection);
   };
   
-  requestAnimationFrame(checkSelection);
+  selectionMonitorId = requestAnimationFrame(checkSelection);
 }
 
 /**
@@ -253,75 +504,45 @@ function updateUnitInfoPanel(controller: ReturnType<typeof createGameController>
  * Setup keyboard event listeners
  */
 function setupKeyboardControls(controller: ReturnType<typeof createGameController>): void {
-  window.addEventListener('keydown', (event) => {
+  const handler = (event: KeyboardEvent) => {
     controller.handleKeyDown(event.key, {
       shift: event.shiftKey,
       ctrl: event.ctrlKey,
       alt: event.altKey,
     });
+  };
+  window.addEventListener('keydown', handler);
+  
+  // Register cleanup function
+  gameCleanupFunctions.push(() => {
+    window.removeEventListener('keydown', handler);
   });
 }
 
 /**
  * Setup camera control event listeners
+ * Note: Panning is handled directly in game-renderer.ts via PIXI events
  */
 function setupCameraControls(
   controller: ReturnType<typeof createGameController>,
   renderer: ReturnType<typeof createGameRenderer>
 ): void {
-  let isPanning = false;
-  let lastMouseX = 0;
-  let lastMouseY = 0;
-
   const canvas = document.querySelector('canvas');
   if (!canvas) return;
 
   // Mouse wheel for zoom
-  canvas.addEventListener('wheel', (event) => {
+  const wheelHandler = (event: WheelEvent) => {
     event.preventDefault();
     const zoomDelta = event.deltaY > 0 ? 0.9 : 1.1;
     const currentZoom = renderer.getCamera().zoom;
     renderer.setZoom(currentZoom * zoomDelta);
     renderer.render(controller.getGameState(), { debugEnabled: false });
-  }, { passive: false });
+  };
+  canvas.addEventListener('wheel', wheelHandler, { passive: false });
 
-  // Right-click drag for panning
-  canvas.addEventListener('contextmenu', (event) => {
-    event.preventDefault();
-  });
-
-  canvas.addEventListener('mousedown', (event) => {
-    if (event.button === 2) { // Right click
-      isPanning = true;
-      lastMouseX = event.clientX;
-      lastMouseY = event.clientY;
-      canvas.style.cursor = 'grabbing';
-    }
-  });
-
-  window.addEventListener('mousemove', (event) => {
-    if (isPanning) {
-      const deltaX = (event.clientX - lastMouseX) / renderer.getCamera().zoom;
-      const deltaY = (event.clientY - lastMouseY) / renderer.getCamera().zoom;
-      
-      const currentPos = renderer.getCamera().position;
-      renderer.setCamera({
-        x: currentPos.x - deltaX / 48, // 48 is tile size
-        y: currentPos.y - deltaY / 48,
-      });
-      
-      lastMouseX = event.clientX;
-      lastMouseY = event.clientY;
-      
-      renderer.render(controller.getGameState(), { debugEnabled: false });
-    }
-  });
-
-  window.addEventListener('mouseup', () => {
-    if (isPanning) {
-      isPanning = false;
-      canvas.style.cursor = 'default';
-    }
+  // Register cleanup function
+  gameCleanupFunctions.push(() => {
+    canvas.removeEventListener('wheel', wheelHandler);
   });
 }
 

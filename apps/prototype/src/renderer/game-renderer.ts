@@ -131,9 +131,6 @@ export class GameRenderer {
   private commanderSprites: Map<string, PIXI.Container> = new Map();
   private bannerSprites: Map<string, PIXI.Graphics> = new Map();
   
-  // Map background sprite
-  private mapSprite: PIXI.Sprite | null = null;
-  
   // Drag state
   private dragState: DragState = { isDragging: false, validMoveTiles: new Set() };
   private callbacks: DragCallbacks = {};
@@ -141,19 +138,30 @@ export class GameRenderer {
   // Drag overlay for valid/invalid indicators
   private dragOverlay: PIXI.Graphics | null = null;
 
+  // Panning state for right-click camera movement
+  private isPanning: boolean = false;
+  private lastPanX: number = 0;
+  private lastPanY: number = 0;
+
+  private rendererOptions: { useTextures: boolean; showGrid: boolean };
+  private resizeHandler: (() => void) | null = null;
+
   constructor(
     containerId: string,
     width: number,
     height: number,
-    tileSize: number = 64
+    tileSize: number = 64,
+    options?: { useTextures?: boolean; showGrid?: boolean }
   ) {
     this.tileSize = tileSize;
-    // Board center: 24x24 board has center at (11.5, 11.5)
-    const boardCenterX = (BOARD_WIDTH - 1) / 2;
-    const boardCenterY = (BOARD_HEIGHT - 1) / 2;
+    this.rendererOptions = {
+      useTextures: options?.useTextures ?? true,
+      showGrid: options?.showGrid ?? true,
+    };
     
+    // Initialize camera - we'll center the board properly in renderBoard
     this.camera = {
-      position: { x: boardCenterX, y: boardCenterY },
+      position: { x: 0, y: 0 },
       zoom: 1,
       viewportWidth: width,
       viewportHeight: height,
@@ -176,6 +184,36 @@ export class GameRenderer {
     });
     
     container.appendChild(this.app.view as HTMLCanvasElement);
+    
+    // Ensure canvas is visible and on top
+    const canvas = this.app.view as HTMLCanvasElement;
+    
+    // CRITICAL FIX: Ensure container has size
+    container.style.width = width + 'px';
+    container.style.height = height + 'px';
+    container.style.position = 'fixed';
+    container.style.top = '0';
+    container.style.left = '0';
+    container.style.overflow = 'hidden';
+    
+    // Set canvas styles
+    canvas.style.display = 'block';
+    canvas.style.width = width + 'px';
+    canvas.style.height = height + 'px';
+    canvas.style.position = 'fixed';
+    canvas.style.top = '0';
+    canvas.style.left = '0';
+    canvas.style.zIndex = '9999';
+    canvas.style.backgroundColor = '#7cb342';
+    canvas.style.opacity = '1';
+    canvas.style.visibility = 'visible';
+    canvas.style.border = '5px solid red';
+    
+    console.log('✅ Canvas created:', canvas.width, 'x', canvas.height);
+    console.log('✅ Canvas in DOM:', document.contains(canvas));
+    console.log('✅ Container children count:', container.children.length);
+    console.log('✅ Container size:', container.clientWidth, 'x', container.clientHeight);
+    console.log('✅ Canvas size:', canvas.clientWidth, 'x', canvas.clientHeight);
 
     // Create layers
     this.boardLayer = new PIXI.Container();
@@ -193,6 +231,10 @@ export class GameRenderer {
     this.app.stage.addChild(this.dragLayer);
     this.app.stage.addChild(this.debugLayer);
 
+    // Start the PixiJS ticker to ensure rendering
+    this.app.start();
+    console.log('✅ PixiJS ticker started');
+
     // Initialize animation manager
     this.animationManager = new AnimationManager(this.app);
 
@@ -200,7 +242,18 @@ export class GameRenderer {
     this.setupDragEvents();
 
     // Handle resize
-    window.addEventListener('resize', () => this.handleResize());
+    this.resizeHandler = () => this.handleResize();
+    window.addEventListener('resize', this.resizeHandler);
+  }
+
+  /**
+   * Destroy the renderer and cleanup resources
+   */
+  destroy(): void {
+    if (this.resizeHandler) {
+      window.removeEventListener('resize', this.resizeHandler);
+      this.resizeHandler = null;
+    }
   }
 
   /**
@@ -214,37 +267,85 @@ export class GameRenderer {
    * Setup drag-and-drop event handling
    */
   private setupDragEvents(): void {
-    // Enable interactivity on stage
+    const canvas = this.app.view as HTMLCanvasElement;
+    console.log('🔧 setupDragEvents called, canvas:', !!canvas);
+    
+    // Right-click panning - use capture phase to get events before PIXI
+    const onMouseDown = (e: MouseEvent) => {
+      if (e.button === 2) {
+        console.log('🖱️ RIGHT MOUSEDOWN - starting pan');
+        e.preventDefault();
+        e.stopPropagation();
+        this.isPanning = true;
+        this.lastPanX = e.clientX;
+        this.lastPanY = e.clientY;
+        canvas.style.cursor = 'grabbing';
+      }
+    };
+    
+    const onMouseMove = (e: MouseEvent) => {
+      if (this.isPanning) {
+        e.preventDefault();
+        const deltaX = (e.clientX - this.lastPanX) / (this.tileSize * this.camera.zoom);
+        const deltaY = (e.clientY - this.lastPanY) / (this.tileSize * this.camera.zoom);
+        
+        this.camera.position.x -= deltaX;
+        this.camera.position.y -= deltaY;
+        
+        this.lastPanX = e.clientX;
+        this.lastPanY = e.clientY;
+        
+        if (this.currentState) {
+          this.render(this.currentState, { debugEnabled: false });
+        }
+      }
+    };
+    
+    const onMouseUp = (e: MouseEvent) => {
+      if (e.button === 2) {
+        console.log('🖱️ RIGHT MOUSEUP - stopping pan');
+        this.isPanning = false;
+        canvas.style.cursor = 'default';
+      }
+    };
+    
+    // Add listeners to canvas with capture phase (gets event before PIXI)
+    canvas.addEventListener('mousedown', onMouseDown, true);
+    canvas.addEventListener('mousemove', onMouseMove, true);
+    canvas.addEventListener('mouseup', onMouseUp, true);
+    
+    // Prevent context menu on canvas
+    canvas.addEventListener('contextmenu', (e: Event) => {
+      e.preventDefault();
+      e.stopPropagation();
+    }, true);
+
+    // PIXI events for commander interaction (left click)
     this.app.stage.eventMode = 'static';
     this.app.stage.hitArea = this.app.screen;
-
-    // Mouse/Touch events - use global events to ensure they fire
+    
     this.app.stage.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
+      if (this.isPanning) return;
       const worldPos = this.screenToWorld({ x: e.global.x, y: e.global.y });
       this.handlePointerDown(worldPos, { x: e.global.x, y: e.global.y });
     });
 
     this.app.stage.on('pointermove', (e: PIXI.FederatedPointerEvent) => {
+      if (this.isPanning) return;
       const worldPos = this.screenToWorld({ x: e.global.x, y: e.global.y });
       this.handlePointerMove(worldPos, { x: e.global.x, y: e.global.y });
     });
 
     this.app.stage.on('pointerup', (e: PIXI.FederatedPointerEvent) => {
+      if (this.isPanning) return;
       const worldPos = this.screenToWorld({ x: e.global.x, y: e.global.y });
       this.handlePointerUp(worldPos);
     });
 
-    this.app.stage.on('pointerupoutside', (e: PIXI.FederatedPointerEvent) => {
+    this.app.stage.on('pointerupoutside', () => {
+      if (this.isPanning) return;
       this.cancelDrag();
     });
-
-    // Right-click for deselect (context menu)
-    const canvas = this.app.view as HTMLCanvasElement;
-    if (canvas) {
-      canvas.addEventListener('contextmenu', (e: Event) => {
-        e.preventDefault();
-      });
-    }
   }
 
   /**
@@ -682,20 +783,36 @@ export class GameRenderer {
    * Render the current game state
    */
   render(state: GameState, uiState: UIState): void {
+    console.log('🎨 Renderer.render() called');
+    
     // Store state for interaction handling
     this.currentState = state;
     
+    console.log('🎨 Clearing layers...');
     this.clearLayers();
     
+    console.log('🎨 Rendering board...');
     this.renderBoard(state, uiState);
+    
+    console.log('🎨 Rendering valid moves...');
     this.renderValidMoves(state, uiState);
+    
+    console.log('🎨 Rendering banners...');
     this.renderBanners(state);
+    
+    console.log('🎨 Rendering commanders...');
     this.renderCommanders(state, uiState);
+    
+    console.log('🎨 Rendering held status...');
     this.renderHeldStatus(state);
     
     if (uiState.debugEnabled) {
       this.renderDebug(state, uiState);
     }
+    
+    console.log('✅ Render complete. Stage children:', this.app.stage.children.length);
+    console.log('✅ Board layer children:', this.boardLayer.children.length);
+    console.log('✅ Commander layer children:', this.commanderLayer.children.length);
   }
 
   /**
@@ -832,44 +949,98 @@ export class GameRenderer {
     this.uiLayer.removeChildren();
     this.debugLayer.removeChildren();
     // Note: dragLayer is NOT cleared here - it's managed separately
-    // Note: mapSprite is kept as texture source, not added to boardLayer directly
   }
 
   /**
-   * Render the game board
+   * Render the game board with uniform grass meadow
    */
   private renderBoard(state: GameState, uiState: UIState): void {
     const graphics = new PIXI.Graphics();
-    
-    // Load tile texture if not already loaded
-    if (!this.mapSprite) {
-      const texture = PIXI.Texture.from('/tile.png');
-      this.mapSprite = new PIXI.Sprite(texture);
-    }
     
     for (let x = 0; x < BOARD_WIDTH; x++) {
       for (let y = 0; y < BOARD_HEIGHT; y++) {
         const screenPos = this.worldToScreen({ x, y });
         const size = this.tileSize * this.camera.zoom;
         
-        // Draw tile image on each field
-        if (this.mapSprite && this.mapSprite.texture.valid) {
-          const tileSprite = new PIXI.Sprite(this.mapSprite.texture);
-          tileSprite.x = screenPos.x;
-          tileSprite.y = screenPos.y;
-          tileSprite.width = size;
-          tileSprite.height = size;
-          this.boardLayer.addChild(tileSprite);
-        } else {
-          // Fallback: green background if image not loaded yet
-          graphics.beginFill(COLORS.GRASS);
-          graphics.drawRect(screenPos.x, screenPos.y, size, size);
-          graphics.endFill();
+        // Base grass color - natural meadow green
+        graphics.beginFill(COLORS.GRASS);
+        graphics.drawRect(screenPos.x, screenPos.y, size, size);
+        graphics.endFill();
+        
+        // Only draw detailed textures if enabled
+        if (this.rendererOptions.useTextures) {
+          // Grass blades as small lines - same pattern on all tiles
+          // Light green blades (sunny grass)
+          graphics.lineStyle(1.5 * this.camera.zoom, 0x9ccc65, 0.4);
+          const lightBlades = [
+            { x: 0.15, y: 0.25, angle: -0.3 },
+            { x: 0.65, y: 0.15, angle: 0.2 },
+            { x: 0.45, y: 0.55, angle: -0.1 },
+            { x: 0.80, y: 0.70, angle: 0.4 },
+            { x: 0.30, y: 0.80, angle: -0.2 },
+            { x: 0.55, y: 0.35, angle: 0.3 },
+            { x: 0.25, y: 0.50, angle: -0.4 },
+            { x: 0.70, y: 0.45, angle: 0.1 },
+          ];
+          for (const blade of lightBlades) {
+            const startX = screenPos.x + blade.x * size;
+            const startY = screenPos.y + blade.y * size;
+            const bladeLength = 4 * this.camera.zoom;
+            const endX = startX + Math.cos(blade.angle) * bladeLength;
+            const endY = startY + Math.sin(blade.angle) * bladeLength;
+            graphics.moveTo(startX, startY);
+            graphics.lineTo(endX, endY);
+          }
+          
+          // Dark green blades (shadow grass)
+          graphics.lineStyle(1.5 * this.camera.zoom, 0x558b2f, 0.5);
+          const darkBlades = [
+            { x: 0.40, y: 0.20, angle: 0.3 },
+            { x: 0.75, y: 0.40, angle: -0.2 },
+            { x: 0.20, y: 0.60, angle: 0.1 },
+            { x: 0.60, y: 0.75, angle: -0.3 },
+            { x: 0.85, y: 0.85, angle: 0.2 },
+            { x: 0.10, y: 0.40, angle: -0.1 },
+            { x: 0.50, y: 0.90, angle: 0.4 },
+            { x: 0.90, y: 0.30, angle: -0.4 },
+          ];
+          for (const blade of darkBlades) {
+            const startX = screenPos.x + blade.x * size;
+            const startY = screenPos.y + blade.y * size;
+            const bladeLength = 3 * this.camera.zoom;
+            const endX = startX + Math.cos(blade.angle) * bladeLength;
+            const endY = startY + Math.sin(blade.angle) * bladeLength;
+            graphics.moveTo(startX, startY);
+            graphics.lineTo(endX, endY);
+          }
+          
+          // Additional tiny grass details
+          graphics.lineStyle(1 * this.camera.zoom, 0x7cb342, 0.3);
+          const tinyBlades = [
+            { x: 0.08, y: 0.12 },
+            { x: 0.92, y: 0.08 },
+            { x: 0.05, y: 0.95 },
+            { x: 0.95, y: 0.92 },
+            { x: 0.33, y: 0.05 },
+            { x: 0.67, y: 0.95 },
+          ];
+          for (const blade of tinyBlades) {
+            const startX = screenPos.x + blade.x * size;
+            const startY = screenPos.y + blade.y * size;
+            const bladeLength = 2 * this.camera.zoom;
+            const angle = (blade.x + blade.y) * Math.PI;
+            const endX = startX + Math.cos(angle) * bladeLength;
+            const endY = startY + Math.sin(angle) * bladeLength;
+            graphics.moveTo(startX, startY);
+            graphics.lineTo(endX, endY);
+          }
         }
         
-        // Draw grid
-        graphics.lineStyle(1, COLORS.GRID, 0.3);
-        graphics.drawRect(screenPos.x, screenPos.y, size, size);
+        // Draw grid if enabled
+        if (this.rendererOptions.showGrid) {
+          graphics.lineStyle(1, COLORS.GRID, 0.2);
+          graphics.drawRect(screenPos.x, screenPos.y, size, size);
+        }
         
         // Highlight hovered tile
         if (uiState.hoveredTile?.x === x && uiState.hoveredTile?.y === y) {
@@ -1225,17 +1396,34 @@ export class GameRenderer {
    * Convert screen coordinates to world coordinates
    */
   screenToWorld(screenPos: Position): Position {
-    const x = (screenPos.x - this.camera.viewportWidth / 2) / (this.tileSize * this.camera.zoom) + this.camera.position.x;
-    const y = (screenPos.y - this.camera.viewportHeight / 2) / (this.tileSize * this.camera.zoom) + this.camera.position.y;
+    const boardWidth = BOARD_WIDTH * this.tileSize * this.camera.zoom;
+    const boardHeight = BOARD_HEIGHT * this.tileSize * this.camera.zoom;
+    
+    // Calculate offset to center the board (same as in worldToScreen)
+    const offsetX = (this.camera.viewportWidth - boardWidth) / 2;
+    const offsetY = (this.camera.viewportHeight - boardHeight) / 2;
+    
+    // Account for camera position
+    const x = (screenPos.x - offsetX) / (this.tileSize * this.camera.zoom) + this.camera.position.x;
+    const y = (screenPos.y - offsetY) / (this.tileSize * this.camera.zoom) + this.camera.position.y;
     return { x: Math.floor(x), y: Math.floor(y) };
   }
 
   /**
    * Convert world coordinates to screen coordinates
+   * Centers the board in the viewport and applies camera offset
    */
   worldToScreen(worldPos: Position): Position {
-    const x = (worldPos.x - this.camera.position.x) * this.tileSize * this.camera.zoom + this.camera.viewportWidth / 2;
-    const y = (worldPos.y - this.camera.position.y) * this.tileSize * this.camera.zoom + this.camera.viewportHeight / 2;
+    const boardWidth = BOARD_WIDTH * this.tileSize * this.camera.zoom;
+    const boardHeight = BOARD_HEIGHT * this.tileSize * this.camera.zoom;
+    
+    // Calculate offset to center the board
+    const offsetX = (this.camera.viewportWidth - boardWidth) / 2;
+    const offsetY = (this.camera.viewportHeight - boardHeight) / 2;
+    
+    // Apply camera position offset
+    const x = (worldPos.x - this.camera.position.x) * this.tileSize * this.camera.zoom + offsetX;
+    const y = (worldPos.y - this.camera.position.y) * this.tileSize * this.camera.zoom + offsetY;
     return { x, y };
   }
 
@@ -1404,7 +1592,8 @@ export function createGameRenderer(
   containerId: string,
   width: number,
   height: number,
-  tileSize: number = 64
+  tileSize: number = 64,
+  options?: { useTextures?: boolean; showGrid?: boolean }
 ): GameRenderer {
-  return new GameRenderer(containerId, width, height, tileSize);
+  return new GameRenderer(containerId, width, height, tileSize, options);
 }

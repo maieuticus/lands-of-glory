@@ -28,7 +28,7 @@ import {
   GameResults,
 } from '@lands-of-glory/game-core';
 import { GameRenderer, UIState, DragCallbacks } from '../renderer/game-renderer';
-import { CombatDiceAnimation } from '../renderer/combat-animation';
+import { CombatDiceAnimation, DICE_SIZE_CONFIGS } from '../renderer/combat-animation';
 
 /**
  * Combat log entry
@@ -73,10 +73,11 @@ export class GameController {
   private history: HistoryEntry[] = [];
   private maxHistorySize = 20;
 
-  constructor(gameState: GameState, renderer: GameRenderer) {
+  constructor(gameState: GameState, renderer: GameRenderer, diceSize: string = 'large') {
     this.gameState = gameState;
     this.renderer = renderer;
-    this.combatAnimation = new CombatDiceAnimation(renderer.getApp());
+    const diceConfig = DICE_SIZE_CONFIGS[diceSize] || DICE_SIZE_CONFIGS['large'];
+    this.combatAnimation = new CombatDiceAnimation(renderer.getApp(), diceConfig);
     this.setupDragCallbacks();
   }
 
@@ -1093,8 +1094,15 @@ export class GameController {
    * Render current state
    */
   private render(): void {
+    console.log('🎮 Controller.render() called');
     this.uiState.selectedCommanderId = this.selectedCommanderId;
-    this.renderer.render(this.gameState, this.uiState);
+    console.log('🎮 Calling renderer.render()...');
+    try {
+      this.renderer.render(this.gameState, this.uiState);
+      console.log('✅ Controller render complete');
+    } catch (error) {
+      console.error('❌ Error in renderer.render():', error);
+    }
   }
 }
 
@@ -1103,8 +1111,9 @@ export class GameController {
  */
 export function createGameController(
   config: GameConfig,
-  renderer: GameRenderer
+  renderer: GameRenderer,
+  diceSize: string = 'large'
 ): GameController {
   const gameState = createGame(config);
-  return new GameController(gameState, renderer);
+  return new GameController(gameState, renderer, diceSize);
 }

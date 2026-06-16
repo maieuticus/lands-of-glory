@@ -15,7 +15,12 @@ import { ArmyBuilderUI, createArmyBuilderStyles, ArmyBuilderCallback } from './a
 /**
  * Callback when army builder is complete
  */
-export type ArmyBuilderCompleteCallback = (configs: ArmyConfig[]) => void;
+export interface ArmyBuilderResult {
+  configs: ArmyConfig[];
+  budget: number;
+}
+
+export type ArmyBuilderCompleteCallback = (configs: ArmyConfig[], budget: number) => void;
 
 /**
  * Army Builder Screen Controller
@@ -81,8 +86,20 @@ export class ArmyBuilderScreen {
         </div>
         
         <div class="army-builder-player-header">
-          <h1>${currentPlayer.name} - Armee zusammenstellen</h1>
+          <h1>${currentPlayer.name}</h1>
           <div class="player-indicator" style="background: ${currentPlayer.color}"></div>
+        </div>
+        
+        <div class="army-builder-top-actions">
+          <button class="btn-cancel">Abbrechen</button>
+          <div class="nav-buttons">
+            ${this.currentPlayerIndex > 0 ? `
+              <button class="btn-prev">← Zurück</button>
+            ` : ''}
+            <button class="btn-next ${isLastPlayer ? 'btn-start' : ''}">
+              ${isLastPlayer ? 'Spiel starten!' : 'Weiter →'}
+            </button>
+          </div>
         </div>
         
         <div id="army-builder-container"></div>
@@ -117,11 +134,10 @@ export class ArmyBuilderScreen {
   private initArmyBuilder(): void {
     const callback: ArmyBuilderCallback = (config, isValid) => {
       this.playerArmies[this.currentPlayerIndex] = config;
-      // Update next button state
-      const nextBtn = this.container.querySelector('.btn-next') as HTMLButtonElement;
-      if (nextBtn) {
-        nextBtn.disabled = !isValid;
-      }
+      // Update ALL next buttons (top and bottom)
+      this.container.querySelectorAll('.btn-next').forEach((btn) => {
+        (btn as HTMLButtonElement).disabled = !isValid;
+      });
     };
 
     this.armyBuilderUI = new ArmyBuilderUI(
@@ -131,34 +147,30 @@ export class ArmyBuilderScreen {
       callback
     );
 
-    // Set initial button state
-    const nextBtn = this.container.querySelector('.btn-next') as HTMLButtonElement;
-    if (nextBtn) {
-      nextBtn.disabled = !this.armyBuilderUI.isValid();
-    }
+    // Set initial button state for ALL buttons
+    this.container.querySelectorAll('.btn-next').forEach((btn) => {
+      (btn as HTMLButtonElement).disabled = !this.armyBuilderUI!.isValid();
+    });
   }
 
   /**
    * Attach event listeners
    */
   private attachEventListeners(): void {
-    // Cancel button
-    const cancelBtn = this.container.querySelector('.btn-cancel');
-    if (cancelBtn) {
-      cancelBtn.addEventListener('click', () => this.onCancel());
-    }
+    // Cancel buttons (top and bottom)
+    this.container.querySelectorAll('.btn-cancel').forEach(btn => {
+      btn.addEventListener('click', () => this.onCancel());
+    });
 
-    // Previous button
-    const prevBtn = this.container.querySelector('.btn-prev');
-    if (prevBtn) {
-      prevBtn.addEventListener('click', () => this.handlePrevious());
-    }
+    // Previous buttons (top and bottom)
+    this.container.querySelectorAll('.btn-prev').forEach(btn => {
+      btn.addEventListener('click', () => this.handlePrevious());
+    });
 
-    // Next/Start button
-    const nextBtn = this.container.querySelector('.btn-next');
-    if (nextBtn) {
-      nextBtn.addEventListener('click', () => this.handleNext());
-    }
+    // Next/Start buttons (top and bottom)
+    this.container.querySelectorAll('.btn-next').forEach(btn => {
+      btn.addEventListener('click', () => this.handleNext());
+    });
   }
 
   /**
@@ -178,6 +190,8 @@ export class ArmyBuilderScreen {
     // Save current army
     if (this.armyBuilderUI) {
       this.playerArmies[this.currentPlayerIndex] = this.armyBuilderUI.getConfig();
+      // Update budget from UI if changed
+      this.budget = this.armyBuilderUI.getBudget();
     }
 
     if (this.currentPlayerIndex < this.playerConfigs.length - 1) {
@@ -186,7 +200,7 @@ export class ArmyBuilderScreen {
       this.render();
     } else {
       // All players configured, start game
-      this.onComplete(this.playerArmies);
+      this.onComplete(this.playerArmies, this.budget);
     }
   }
 
@@ -208,6 +222,7 @@ export class ArmyBuilderScreen {
         overflow-y: auto;
         overflow-x: hidden;
         box-sizing: border-box;
+        scroll-behavior: auto;
       }
 
       .army-builder-screen::-webkit-scrollbar {
@@ -291,28 +306,32 @@ export class ArmyBuilderScreen {
         align-items: center;
         justify-content: center;
         gap: 15px;
-        margin-bottom: 20px;
+        margin-bottom: 15px;
       }
 
       .army-builder-player-header h1 {
         margin: 0;
         color: #fff;
+        font-size: 22px;
       }
 
       .player-indicator {
-        width: 30px;
-        height: 30px;
+        width: 24px;
+        height: 24px;
         border-radius: 50%;
         border: 2px solid #fff;
       }
 
+      .army-builder-top-actions,
       .army-builder-footer {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        margin-top: 30px;
-        padding-top: 20px;
-        border-top: 2px solid #333;
+        margin: 15px 0;
+        padding: 12px 15px;
+        background: #1a1a2e;
+        border: 1px solid #333;
+        border-radius: 8px;
       }
 
       .btn-cancel {
@@ -396,18 +415,23 @@ export class ArmyBuilderScreen {
  * Show the army builder screen
  * Returns a promise that resolves with the army configurations
  */
+export interface ArmyBuilderResult {
+  configs: ArmyConfig[];
+  budget: number;
+}
+
 export function showArmyBuilder(
   containerId: string,
   playerConfigs: PlayerConfig[],
   budget: number = DEFAULT_STARTING_BUDGET
-): Promise<ArmyConfig[]> {
+): Promise<ArmyBuilderResult> {
   return new Promise((resolve, reject) => {
     const screen = new ArmyBuilderScreen(
       containerId,
       playerConfigs,
-      (configs) => {
+      (configs, finalBudget) => {
         screen.destroy();
-        resolve(configs);
+        resolve({ configs, budget: finalBudget });
       },
       () => {
         screen.destroy();

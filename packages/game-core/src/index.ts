@@ -30,6 +30,7 @@ export type {
   AttackResult,
   GameConfig,
   ArmyBuilderConfig,
+  RendererOptions,
 } from './types';
 
 export {

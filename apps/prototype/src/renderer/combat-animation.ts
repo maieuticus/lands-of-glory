@@ -47,6 +47,45 @@ const DEFAULT_CONFIG: CombatAnimationConfig = {
 };
 
 /**
+ * Predefined dice size configurations
+ */
+export const DICE_SIZE_CONFIGS: Record<string, CombatAnimationConfig> = {
+  small: {
+    diceSize: 40,
+    diceSpacing: 12,
+    pairSpacing: 120,
+    animationDuration: 600,
+    rollInterval: 60,
+    resultDelay: 300,
+    scale: 0.8,
+    positionX: 10,
+    positionY: 10,
+  },
+  medium: {
+    diceSize: 56,
+    diceSpacing: 18,
+    pairSpacing: 170,
+    animationDuration: 700,
+    rollInterval: 70,
+    resultDelay: 350,
+    scale: 1.0,
+    positionX: 15,
+    positionY: 15,
+  },
+  large: {
+    diceSize: 72,
+    diceSpacing: 25,
+    pairSpacing: 220,
+    animationDuration: 800,
+    rollInterval: 80,
+    resultDelay: 400,
+    scale: 1.3,
+    positionX: 20,
+    positionY: 20,
+  },
+};
+
+/**
  * Player colors for dice sides
  */
 interface PlayerColors {

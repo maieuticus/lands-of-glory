@@ -72,6 +72,13 @@ export class ArmyBuilderUI {
   }
 
   /**
+   * Get the current budget
+   */
+  getBudget(): number {
+    return this.budget;
+  }
+
+  /**
    * Clone an army configuration
    */
   private cloneConfig(config: ArmyConfig): ArmyConfig {
@@ -98,17 +105,29 @@ export class ArmyBuilderUI {
    * Render the army builder UI
    */
   private render(): void {
+    // Remove focus from any element to prevent auto-scrolling
+    if (document.activeElement && document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+    
+    // Save scroll position before re-render
+    const scrollY = window.scrollY || window.pageYOffset || document.documentElement.scrollTop || 0;
+
     const cost = this.validation.cost;
     const remainingBudget = this.validation.remainingBudget;
 
     this.container.innerHTML = `
       <div class="army-builder">
-        <div class="army-builder-header">
-          <h2>Armee Zusammenstellen</h2>
+        <div class="army-builder-top-bar">
           <div class="budget-display ${remainingBudget < 0 ? 'over-budget' : ''}">
-            <span class="budget-label">Budget:</span>
-            <span class="budget-value">${cost.totalCost} / ${this.budget} Gold</span>
-            <span class="budget-remaining">(${remainingBudget >= 0 ? '+' : ''}${remainingBudget} Gold)</span>
+            <span class="budget-label">Gold:</span>
+            <span class="budget-value">${cost.totalCost} / ${this.budget}</span>
+            <span class="budget-remaining">(${remainingBudget >= 0 ? '+' : ''}${remainingBudget})</span>
+          </div>
+          <div class="budget-slider">
+            <label for="budget-slider">Budget:</label>
+            <input type="range" id="budget-slider" name="budget" min="20" max="50" value="${this.budget}" step="5">
+            <span class="budget-slider-value">${this.budget}</span>
           </div>
         </div>
 
@@ -117,27 +136,6 @@ export class ArmyBuilderUI {
             ${this.validation.errors.map(err => `<div class="error">${err}</div>`).join('')}
           </div>
         ` : ''}
-
-        <div class="cost-breakdown">
-          <div class="cost-item">
-            <span class="cost-label">Hauptmänner:</span>
-            <span class="cost-value">${cost.commanderCosts} Gold</span>
-          </div>
-          <div class="cost-item">
-            <span class="cost-label">Einheiten:</span>
-            <span class="cost-value">${cost.unitCosts} Gold</span>
-          </div>
-          <div class="cost-item">
-            <span class="cost-label">Stärkepunkte:</span>
-            <span class="cost-value">${cost.bonusPointCosts} Gold</span>
-          </div>
-          ${cost.freeBonusUnits > 0 ? `
-            <div class="cost-item free-units">
-              <span class="cost-label">Gratis-Bonus-Einheiten:</span>
-              <span class="cost-value">${cost.freeBonusUnits}</span>
-            </div>
-          ` : ''}
-        </div>
 
         <div class="commanders-list">
           ${this.currentConfig.commanders.map((cmd, index) => this.renderCommander(cmd, index)).join('')}
@@ -150,20 +148,23 @@ export class ArmyBuilderUI {
           <button class="btn-reset">Zurücksetzen</button>
         </div>
 
-        <div class="cost-rules">
-          <h4>Kosten:</h4>
-          <ul>
-            <li>König: Kostenlos (benötigt)</li>
-            <li>Hauptmann: ${ARMY_BUILDER_COSTS.captain} Gold</li>
-            <li>Einheit (Inf/Kav/Bog): ${ARMY_BUILDER_COSTS.unit} Gold</li>
-            <li>Stärkepunkt: ${ARMY_BUILDER_COSTS.bonusPoint} Gold</li>
-            <li class="bonus-rule">Bei 3 Einheiten: 4. Einheit gratis (Stärke = schwächste Einheit)</li>
-          </ul>
+        <div class="cost-rules compact">
+          <span>König: Kostenlos</span>
+          <span>Hauptmann: 1 Gold</span>
+          <span>Einheit: 1 Gold</span>
+          <span>Stärke: 1 Gold</span>
+          <span class="bonus-rule">Infanterie: 4. Einheit gratis</span>
         </div>
       </div>
     `;
 
     this.attachEventListeners();
+    
+    // Restore scroll position after re-render (multiple times to ensure it sticks)
+    const restoreScroll = () => window.scrollTo(0, scrollY);
+    restoreScroll();
+    requestAnimationFrame(restoreScroll);
+    setTimeout(restoreScroll, 10);
   }
 
   /**
@@ -180,11 +181,13 @@ export class ArmyBuilderUI {
       archer: 'Bogenschützen',
     };
 
+    const canGetFreeUnit = cmd.troopType === 'infantry';
+
     return `
       <div class="commander-card ${isKing ? 'king' : 'captain'}">
         <div class="commander-header">
           <span class="commander-type-badge ${cmd.type}">${isKing ? '👑 König' : '⚔️ Hauptmann'}</span>
-          <span class="commander-troop-type">${typeNames[cmd.troopType]}</span>
+          <span class="commander-troop-type ${cmd.troopType}">${typeNames[cmd.troopType]}</span>
           ${canDelete ? `<button class="btn-remove-commander" data-index="${index}">×</button>` : ''}
         </div>
 
@@ -206,7 +209,7 @@ export class ArmyBuilderUI {
 
         <div class="unit-count">
           Einheiten: ${unitCount}/4
-          ${unitCount === 3 ? '<span class="bonus-indicator">+1 Gratis!</span>' : ''}
+          ${unitCount === 3 && canGetFreeUnit ? '<span class="bonus-indicator">+1 Gratis (Infanterie)!</span>' : ''}
         </div>
       </div>
     `;
@@ -227,8 +230,8 @@ export class ArmyBuilderUI {
         <div class="unit-slot filled">
           <div class="unit-avatar ${cmd.troopType}"></div>
           <div class="unit-strength">
-            <label>Stärke:</label>
-            <select class="strength-select" data-commander="${cmdIndex}" data-slot="${slotIndex}">
+            <label for="strength-cmd${cmdIndex}-slot${slotIndex}">Stärke:</label>
+            <select id="strength-cmd${cmdIndex}-slot${slotIndex}" name="strength-cmd${cmdIndex}-slot${slotIndex}" class="strength-select" data-commander="${cmdIndex}" data-slot="${slotIndex}">
               ${[0, 1, 2, 3].map(val => `
                 <option value="${val}" ${slot.bonusPoints === val ? 'selected' : ''}>+${val}</option>
               `).join('')}
@@ -238,8 +241,8 @@ export class ArmyBuilderUI {
         </div>
       `;
     } else {
-      // Check if this would be a free bonus unit (4th unit when commander has 3)
-      const wouldBeFree = unitCount === 3 && cmd.slots.filter(s => s.hasUnit).length === 3;
+      // Check if this would be a free bonus unit (4th unit when infantry commander has 3)
+      const wouldBeFree = unitCount === 3 && cmd.slots.filter(s => s.hasUnit).length === 3 && cmd.troopType === 'infantry';
       
       return `
         <div class="unit-slot empty">
@@ -264,18 +267,28 @@ export class ArmyBuilderUI {
     // Add captain button
     const addCaptainBtn = this.container.querySelector('.btn-add-captain');
     if (addCaptainBtn) {
-      addCaptainBtn.addEventListener('click', () => this.handleAddCaptain());
+      addCaptainBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        (e.target as HTMLElement).blur();
+        this.handleAddCaptain();
+      });
     }
 
     // Reset button
     const resetBtn = this.container.querySelector('.btn-reset');
     if (resetBtn) {
-      resetBtn.addEventListener('click', () => this.handleReset());
+      resetBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        (e.target as HTMLElement).blur();
+        this.handleReset();
+      });
     }
 
     // Remove commander buttons
     this.container.querySelectorAll('.btn-remove-commander').forEach(btn => {
       btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        (e.target as HTMLElement).blur();
         const index = parseInt((e.target as HTMLElement).dataset.index || '0');
         this.handleRemoveCommander(index);
       });
@@ -284,6 +297,8 @@ export class ArmyBuilderUI {
     // Troop type buttons
     this.container.querySelectorAll('.troop-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        (e.target as HTMLElement).blur();
         const target = e.target as HTMLElement;
         const cmdIndex = parseInt(target.dataset.commander || '0');
         const troopType = target.dataset.troop as TroopType;
@@ -294,6 +309,8 @@ export class ArmyBuilderUI {
     // Add unit buttons
     this.container.querySelectorAll('.btn-add-unit').forEach(btn => {
       btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        (e.target as HTMLElement).blur();
         const target = e.target as HTMLElement;
         const cmdIndex = parseInt(target.dataset.commander || '0');
         const slotIndex = parseInt(target.dataset.slot || '0');
@@ -304,6 +321,8 @@ export class ArmyBuilderUI {
     // Remove unit buttons
     this.container.querySelectorAll('.btn-remove-unit').forEach(btn => {
       btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        (e.target as HTMLElement).blur();
         const target = e.target as HTMLElement;
         const cmdIndex = parseInt(target.dataset.commander || '0');
         const slotIndex = parseInt(target.dataset.slot || '0');
@@ -315,12 +334,55 @@ export class ArmyBuilderUI {
     this.container.querySelectorAll('.strength-select').forEach(select => {
       select.addEventListener('change', (e) => {
         const target = e.target as HTMLSelectElement;
+        target.blur();
         const cmdIndex = parseInt(target.dataset.commander || '0');
         const slotIndex = parseInt(target.dataset.slot || '0');
         const bonusPoints = parseInt(target.value) as 0 | 1 | 2 | 3;
         this.handleChangeStrength(cmdIndex, slotIndex, bonusPoints);
       });
     });
+
+    // Budget slider
+    const budgetSlider = this.container.querySelector('#budget-slider') as HTMLInputElement;
+    if (budgetSlider) {
+      // Prevent default scrolling behavior on mousedown
+      budgetSlider.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        budgetSlider.focus();
+      });
+      
+      // On input: update text without re-rendering
+      budgetSlider.addEventListener('input', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const target = e.target as HTMLInputElement;
+        const newBudget = parseInt(target.value);
+        this.budget = newBudget;
+        
+        // Update display text only
+        const valueDisplay = this.container.querySelector('.budget-slider-value');
+        if (valueDisplay) valueDisplay.textContent = newBudget.toString();
+        
+        // Update budget display
+        const budgetDisplay = this.container.querySelector('.budget-value');
+        if (budgetDisplay) {
+          const cost = calculateArmyCost(this.currentConfig);
+          const remaining = newBudget - cost.totalCost;
+          budgetDisplay.textContent = `${cost.totalCost} / ${newBudget}`;
+          const remainingEl = this.container.querySelector('.budget-remaining');
+          if (remainingEl) remainingEl.textContent = `(${remaining >= 0 ? '+' : ''}${remaining})`;
+        }
+        
+        // Update validation
+        this.validation = validateArmyConfig(this.currentConfig, this.budget);
+        this.callback(this.getConfig(), this.validation.valid);
+      });
+      
+      // On change (user releases): re-render to update all UI state
+      budgetSlider.addEventListener('change', () => {
+        this.render();
+      });
+    }
   }
 
   /**
@@ -451,14 +513,15 @@ export function createArmyBuilderStyles(): HTMLStyleElement {
     .army-builder {
       background: #1a1a2e;
       color: #eee;
-      padding: 20px;
-      border-radius: 8px;
-      max-width: 900px;
-      max-height: calc(100vh - 100px);
+      padding: calc(20px * var(--ui-scale, 1));
+      border-radius: calc(8px * var(--ui-scale, 1));
+      max-width: calc(900px * var(--ui-scale, 1));
+      max-height: calc(100vh - calc(100px * var(--ui-scale, 1)));
       margin: 0 auto;
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
       overflow-y: auto;
       overflow-x: hidden;
+      font-size: calc(16px * var(--ui-scale, 1));
     }
 
     .army-builder::-webkit-scrollbar {
@@ -479,38 +542,34 @@ export function createArmyBuilderStyles(): HTMLStyleElement {
       background: #555;
     }
 
-    .army-builder-header {
+    .army-builder-top-bar {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 20px;
-      padding-bottom: 15px;
-      border-bottom: 2px solid #333;
-    }
-
-    .army-builder-header h2 {
-      margin: 0;
-      color: #ffd700;
+      margin-bottom: 15px;
+      padding: 10px 15px;
+      background: #1a1a2e;
+      border: 1px solid #333;
+      border-radius: 8px;
+      flex-wrap: wrap;
+      gap: 10px;
     }
 
     .budget-display {
       display: flex;
       align-items: center;
-      gap: 10px;
-      font-size: 18px;
+      gap: 8px;
+      font-size: 16px;
+      font-weight: bold;
     }
 
     .budget-display.over-budget {
       color: #ff6b6b;
     }
 
-    .budget-label {
-      font-weight: bold;
-    }
-
     .budget-value {
       background: #333;
-      padding: 5px 15px;
+      padding: 4px 12px;
       border-radius: 4px;
     }
 
@@ -522,37 +581,53 @@ export function createArmyBuilderStyles(): HTMLStyleElement {
       color: #ff6b6b;
     }
 
+    .budget-slider {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+      position: sticky;
+      top: 0;
+      background: #1a1a2e;
+      padding: 8px 12px;
+      border-radius: 6px;
+      z-index: 10;
+    }
+
+    .budget-slider label {
+      color: #9ca3af;
+    }
+
+    .budget-slider input[type="range"] {
+      width: 100px;
+      accent-color: #4ade80;
+      touch-action: none;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+
+    .budget-slider input[type="range"]:focus {
+      outline: none;
+    }
+
+    .budget-slider-value {
+      font-weight: bold;
+      color: #ffd700;
+      min-width: 24px;
+    }
+
     .validation-errors {
       background: #ff6b6b22;
       border: 1px solid #ff6b6b;
-      padding: 15px;
-      margin-bottom: 20px;
+      padding: 10px 15px;
+      margin-bottom: 15px;
       border-radius: 4px;
     }
 
     .validation-errors .error {
       color: #ff6b6b;
-      margin: 5px 0;
-    }
-
-    .cost-breakdown {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-      gap: 10px;
-      margin-bottom: 20px;
-      padding: 15px;
-      background: #252540;
-      border-radius: 4px;
-    }
-
-    .cost-item {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-
-    .cost-item.free-units {
-      color: #4ade80;
+      margin: 3px 0;
+      font-size: 13px;
     }
 
     .commanders-list {
@@ -648,18 +723,21 @@ export function createArmyBuilderStyles(): HTMLStyleElement {
     }
 
     .troop-btn.active.infantry {
-      background: #60a5fa;
-      border-color: #60a5fa;
+      background: #4ade80;
+      border-color: #4ade80;
+      color: #1a1a2e;
     }
 
     .troop-btn.active.cavalry {
-      background: #fbbf24;
-      border-color: #fbbf24;
+      background: #60a5fa;
+      border-color: #60a5fa;
+      color: #1a1a2e;
     }
 
     .troop-btn.active.archer {
       background: #f87171;
       border-color: #f87171;
+      color: #1a1a2e;
     }
 
     .commander-units {
@@ -691,11 +769,11 @@ export function createArmyBuilderStyles(): HTMLStyleElement {
     }
 
     .unit-avatar.infantry {
-      background: #60a5fa;
+      background: #4ade80;
     }
 
     .unit-avatar.cavalry {
-      background: #fbbf24;
+      background: #60a5fa;
     }
 
     .unit-avatar.archer {
@@ -832,22 +910,19 @@ export function createArmyBuilderStyles(): HTMLStyleElement {
       font-size: 14px;
     }
 
-    .cost-rules h4 {
-      margin: 0 0 10px 0;
-      color: #ffd700;
+    .cost-rules.compact {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 16px;
+      padding: 10px 15px;
+      font-size: 12px;
     }
 
-    .cost-rules ul {
-      margin: 0;
-      padding-left: 20px;
-    }
-
-    .cost-rules li {
-      margin: 5px 0;
+    .cost-rules.compact span {
       color: #9ca3af;
     }
 
-    .cost-rules .bonus-rule {
+    .cost-rules.compact .bonus-rule {
       color: #4ade80;
       font-weight: bold;
     }

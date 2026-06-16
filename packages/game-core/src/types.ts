@@ -285,6 +285,16 @@ export interface GameConfig {
   readonly boardSeed?: number;  // Optional: for reproducible board generation
   readonly debugMode?: boolean;
   readonly armyBuilder?: ArmyBuilderConfig;  // Optional: army builder configuration
+  readonly rendererOptions?: RendererOptions;  // Optional: renderer configuration
+  readonly startingBudget?: number;  // Optional: custom starting budget for army builder
+}
+
+/**
+ * Renderer configuration options
+ */
+export interface RendererOptions {
+  readonly useTextures: boolean;  // Whether to use detailed grass textures
+  readonly showGrid: boolean;     // Whether to show the grid overlay
 }
 
 // ============================================================================

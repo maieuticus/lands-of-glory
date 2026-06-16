@@ -129,9 +129,9 @@ function calculateCommanderCost(
     cost += calculateUnitSlotCost(slot);
   }
 
-  // Apply free bonus unit rule: If commander has exactly 3 units, add a 4th for free
+  // Apply free bonus unit rule: Only for infantry commanders with exactly 3 units
   // The free unit's strength equals the weakest unit the commander has
-  if (applyFreeBonusUnit && unitCount === 3) {
+  if (applyFreeBonusUnit && unitCount === 3 && config.troopType === 'infantry') {
     // Find the weakest unit's bonus points
     const activeUnits = config.slots
       .filter(s => s.hasUnit)
@@ -383,10 +383,11 @@ export function buildArmy(
   playerId: PlayerId,
   config: ArmyConfig,
   positions: readonly { x: number; y: number }[],
-  applyBonusUnits: boolean = true
+  applyBonusUnits: boolean = true,
+  budget: number = DEFAULT_STARTING_BUDGET
 ): Commander[] {
-  // Validate
-  const validation = validateArmyConfig(config);
+  // Validate with the provided budget
+  const validation = validateArmyConfig(config, budget);
   if (!validation.valid) {
     throw new Error(`Invalid army configuration: ${validation.errors.join(', ')}`);
   }

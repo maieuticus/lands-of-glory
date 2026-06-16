@@ -87,9 +87,13 @@ export function createGame(config: GameConfig): GameState {
     // Use custom config if provided, otherwise use default
     const armyConfig: ArmyConfig = playerConfig.armyConfig ?? getDefaultArmyConfig();
 
+    const totalPlayers = config.players.length;
+
     // Build the army using the army builder
-    const commanderPositions = getCommanderPositionsForPlayer(pIdx, armyConfig.commanders.length);
-    const builtCommanders = buildArmy(playerId, armyConfig, commanderPositions);
+    const commanderPositions = getCommanderPositionsForPlayer(pIdx, armyConfig.commanders.length, totalPlayers);
+    const budget = config.startingBudget ?? DEFAULT_STARTING_BUDGET;
+    console.log('💰 [game-core] Player', pIdx, 'budget:', budget, 'startingBudget:', config.startingBudget);
+    const builtCommanders = buildArmy(playerId, armyConfig, commanderPositions, true, budget);
 
     // Add commanders to maps
     const commanderIds: CommanderId[] = [];
@@ -110,7 +114,7 @@ export function createGame(config: GameConfig): GameState {
     const banner: Banner = {
       id: bannerId,
       playerId,
-      position: getInitialBannerPosition(pIdx),
+      position: getInitialBannerPosition(pIdx, totalPlayers),
       status: 'standing',
     };
     bannersMap.set(bannerId, banner);
@@ -155,13 +159,36 @@ export function createGame(config: GameConfig): GameState {
  * @param commanderCount - Number of commanders to place
  * @returns Array of positions for each commander
  */
-function getCommanderPositionsForPlayer(playerIndex: number, commanderCount: number): Position[] {
-  const basePositions: Record<number, { x: number; y: number }> = {
-    0: { x: 10, y: 8 },   // Player 1 base position
-    1: { x: 10, y: 14 },  // Player 2 base position
+function getCommanderPositionsForPlayer(playerIndex: number, commanderCount: number, totalPlayers: number = 2): Position[] {
+  // Commanders are placed between banner and outer edge
+  const CENTER_X = 11;
+  const CENTER_Y = 11;
+  const BANNER_DIST = 3; // Banner 3 fields from center
+  const COMMANDER_DIST = 5; // Commanders 5 fields from center (2 beyond banner)
+  
+  // Base positions for commanders (between banner and edge)
+  const basePositions: Record<number, Record<number, { x: number; y: number }>> = {
+    2: {
+      // Top: commanders between banner (y=7) and edge
+      0: { x: CENTER_X - 1, y: CENTER_Y - COMMANDER_DIST + 1 },
+      // Bottom: commanders between banner (y=15) and edge
+      1: { x: CENTER_X - 1, y: CENTER_Y + COMMANDER_DIST - 2 },
+    },
+    3: {
+      0: { x: CENTER_X - 1, y: CENTER_Y - COMMANDER_DIST + 1 },  // Top
+      1: { x: CENTER_X - COMMANDER_DIST + 1, y: CENTER_Y + 2 },   // Bottom-left
+      2: { x: CENTER_X + COMMANDER_DIST - 2, y: CENTER_Y + 2 },   // Bottom-right
+    },
+    4: {
+      0: { x: CENTER_X - 1, y: CENTER_Y - COMMANDER_DIST + 1 },   // Top
+      1: { x: CENTER_X + COMMANDER_DIST - 2, y: CENTER_Y - 1 },   // Right
+      2: { x: CENTER_X - 1, y: CENTER_Y + COMMANDER_DIST - 2 },   // Bottom
+      3: { x: CENTER_X - COMMANDER_DIST + 1, y: CENTER_Y - 1 },   // Left
+    },
   };
 
-  const base = basePositions[playerIndex] ?? basePositions[0];
+  const playerPositions = basePositions[totalPlayers] ?? basePositions[2];
+  const base = playerPositions[playerIndex] ?? playerPositions[0];
   const positions: Position[] = [];
 
   // Calculate grid dimensions (aim for roughly square)
@@ -189,13 +216,36 @@ function getCommanderPositionsForPlayer(playerIndex: number, commanderCount: num
  * @param playerIndex - Player number (0-3)
  * @returns Initial position for banner
  */
-function getInitialBannerPosition(playerIndex: number): Position {
-  const positions: Record<number, Position> = {
-    0: { x: 13, y: 8 },   // Player 1 - behind the commander formation
-    1: { x: 13, y: 14 },  // Player 2 - behind the commander formation
+function getInitialBannerPosition(playerIndex: number, totalPlayers: number = 2): Position {
+  // All banners are 4 fields away from the center (11, 11)
+  // Distributed in a circle around the center
+  const CENTER_X = 11;
+  const CENTER_Y = 11;
+  const DISTANCE = 3; // 3 fields from center
+  
+  const positions: Record<number, Record<number, Position>> = {
+    2: {
+      // Opposite sides (top and bottom)
+      0: { x: CENTER_X, y: CENTER_Y - DISTANCE },      // Top
+      1: { x: CENTER_X, y: CENTER_Y + DISTANCE },      // Bottom
+    },
+    3: {
+      // Triangle formation (top, bottom-left, bottom-right)
+      0: { x: CENTER_X, y: CENTER_Y - DISTANCE },      // Top
+      1: { x: CENTER_X - DISTANCE, y: CENTER_Y + 2 },  // Bottom-left (approximate)
+      2: { x: CENTER_X + DISTANCE, y: CENTER_Y + 2 },  // Bottom-right (approximate)
+    },
+    4: {
+      // Square formation (top, right, bottom, left)
+      0: { x: CENTER_X, y: CENTER_Y - DISTANCE },      // Top
+      1: { x: CENTER_X + DISTANCE, y: CENTER_Y },      // Right
+      2: { x: CENTER_X, y: CENTER_Y + DISTANCE },      // Bottom
+      3: { x: CENTER_X - DISTANCE, y: CENTER_Y },      // Left
+    },
   };
 
-  return positions[playerIndex] ?? { x: 13, y: 8 };
+  const playerPositions = positions[totalPlayers] ?? positions[2];
+  return playerPositions[playerIndex] ?? { x: CENTER_X, y: CENTER_Y };
 }
 
 /**
