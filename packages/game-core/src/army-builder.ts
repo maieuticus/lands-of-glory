@@ -32,7 +32,7 @@ export const ARMY_BUILDER_COSTS = {
   bonusPoint: 1,     // Each strength point costs 1 gold
 } as const;
 
-export const DEFAULT_STARTING_BUDGET = 20;
+export const DEFAULT_STARTING_BUDGET = 50;
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -436,7 +436,7 @@ export function getDefaultArmyConfig(): ArmyConfig {
       { hasUnit: true, bonusPoints: 0 },
       { hasUnit: true, bonusPoints: 0 },
       { hasUnit: true, bonusPoints: 1 },
-      { hasUnit: false, bonusPoints: 0 },
+      { hasUnit: true, bonusPoints: 3 },
     ],
   });
 
@@ -453,7 +453,9 @@ export function getDefaultArmyConfig(): ArmyConfig {
         ],
       },
       createCaptainConfig('infantry'),
+      createCaptainConfig('infantry'),
       createCaptainConfig('cavalry'),
+      createCaptainConfig('archer'),
       createCaptainConfig('archer'),
     ],
   };

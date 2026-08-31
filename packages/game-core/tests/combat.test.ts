@@ -12,6 +12,7 @@ import {
   applyCombatResult,
   canAttack,
   createRNG,
+  CommanderId,
   GameConfig,
   CombatResult,
   createUnitId,
@@ -91,7 +92,7 @@ describe('Combat Resolution', () => {
       const player2 = game.players[1];
 
       // Find the king
-      let kingId: string | undefined;
+      let kingId: CommanderId | undefined;
       for (const cmdId of player1.commanders) {
         const cmd = game.commanders.get(cmdId);
         if (cmd?.isKing) {
@@ -251,7 +252,7 @@ describe('Combat Resolution', () => {
       const player2 = game.players[1];
 
       // Find the king
-      let kingId: string | undefined;
+      let kingId: CommanderId | undefined;
       for (const cmdId of player1.commanders) {
         const cmd = game.commanders.get(cmdId);
         if (cmd?.isKing) {
@@ -288,8 +289,8 @@ describe('Combat Resolution', () => {
       const player2 = game.players[1];
 
       // Find both kings
-      let king1Id: string | undefined;
-      let king2Id: string | undefined;
+      let king1Id: CommanderId | undefined;
+      let king2Id: CommanderId | undefined;
 
       for (const cmdId of player1.commanders) {
         const cmd = game.commanders.get(cmdId);
@@ -390,7 +391,7 @@ describe('Combat Validation', () => {
     });
 
     it('should allow attack if all conditions are met', () => {
-      const game = createGame(defaultConfig);
+      let game = createGame(defaultConfig);
 
       const player1 = game.players[0];
       const player2 = game.players[1];

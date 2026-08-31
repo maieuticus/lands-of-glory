@@ -11,6 +11,7 @@ import {
   endTurn,
   getCurrentPlayer,
   getWinner,
+  CommanderId,
   GameConfig,
   TroopType,
 } from '../src';
@@ -167,30 +168,17 @@ describe('Game Initialization', () => {
   });
 
   describe('Testfall 18: Normale Commander-Startausstattung', () => {
-    it('should have normal commanders with bonusPoints 0,0,1,3 (except first archer with 0,1,2,3)', () => {
+    it('should have normal commanders with bonusPoints 0,0,1,3', () => {
       const game = createGame(defaultConfig);
 
       for (const player of game.players) {
-        // Find the first archer (cIdx 4 in game.ts)
-        let archerCount = 0;
         for (const commanderId of player.commanders) {
           const commander = game.commanders.get(commanderId);
           if (!commander!.isKing) {
             const activeUnits = commander!.units.filter((u) => u !== null);
             expect(activeUnits).toHaveLength(4);
             const bonusValues = activeUnits.map((u) => u!.bonusPoints).sort((a, b) => a - b);
-
-            // First archer (cIdx 4) has bonusValues [0, 1, 2, 3], others have [0, 0, 1, 3]
-            if (commander!.type === 'archer') {
-              archerCount++;
-              if (archerCount === 1) {
-                expect(bonusValues).toEqual([0, 1, 2, 3]);
-              } else {
-                expect(bonusValues).toEqual([0, 0, 1, 3]);
-              }
-            } else {
-              expect(bonusValues).toEqual([0, 0, 1, 3]);
-            }
+            expect(bonusValues).toEqual([0, 0, 1, 3]);
           }
         }
       }
@@ -305,7 +293,7 @@ describe('Game State Management', () => {
 
       // Find player 1's king and defeat it
       const player1 = game.players[0];
-      let kingId: string | undefined;
+      let kingId: CommanderId | undefined;
       for (const cmdId of player1.commanders) {
         const cmd = game.commanders.get(cmdId);
         if (cmd?.isKing) {

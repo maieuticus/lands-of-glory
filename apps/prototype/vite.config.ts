@@ -2,8 +2,9 @@ import { defineConfig } from 'vite';
 
 export default defineConfig({
   server: {
+    host: '0.0.0.0',
     port: 3000,
-    open: true,
+    open: false,
     // Prevent server crashes from file watching issues
     watch: {
       usePolling: true,

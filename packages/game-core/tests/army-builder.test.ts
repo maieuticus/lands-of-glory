@@ -28,10 +28,10 @@ describe('Army Builder', () => {
       const config = getDefaultArmyConfig();
       const cost = calculateArmyCost(config);
 
-      // Default army: 1 King (free) + 3 Captains (3 gold)
-      // Units: 13 units total (King: 4, 3 Captains: 3 each = 9)
-      expect(cost.commanderCosts).toBe(3);
-      expect(cost.unitCosts).toBe(13);
+      // Default army: 1 King (free) + 5 Captains (5 gold)
+      // Units: 24 units total (King: 4, 5 Captains: 4 each = 20)
+      expect(cost.commanderCosts).toBe(5);
+      expect(cost.unitCosts).toBe(24);
       expect(cost.bonusPointCosts).toBeGreaterThan(0);
       expect(cost.totalCost).toBe(cost.commanderCosts + cost.unitCosts + cost.bonusPointCosts);
       expect(cost.totalCost).toBeLessThanOrEqual(DEFAULT_STARTING_BUDGET);
@@ -402,13 +402,13 @@ describe('Army Builder', () => {
     test('getDefaultArmyConfig returns valid config', () => {
       const config = getDefaultArmyConfig();
       
-      expect(config.commanders).toHaveLength(4);
+      expect(config.commanders).toHaveLength(6);
       
       const kingCount = config.commanders.filter(c => c.type === 'king').length;
       expect(kingCount).toBe(1);
       
       const captainCount = config.commanders.filter(c => c.type === 'captain').length;
-      expect(captainCount).toBe(3);
+      expect(captainCount).toBe(5);
     });
 
     test('getDefaultArmyCost returns consistent values', () => {
@@ -416,8 +416,8 @@ describe('Army Builder', () => {
       const cost2 = getDefaultArmyCost();
       
       expect(cost1.totalCost).toBe(cost2.totalCost);
-      expect(cost1.commanderCosts).toBe(3); // 3 captains
-      expect(cost1.unitCosts).toBe(13); // 13 units total (King 4 + 3 Captains x 3)
+      expect(cost1.commanderCosts).toBe(5); // 5 captains
+      expect(cost1.unitCosts).toBe(24); // 24 units total (King 4 + 5 Captains x 4)
       expect(cost1.totalCost).toBeLessThanOrEqual(DEFAULT_STARTING_BUDGET);
     });
 
