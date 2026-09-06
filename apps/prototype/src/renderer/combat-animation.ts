@@ -13,7 +13,7 @@
  */
 
 import * as PIXI from 'pixi.js';
-import { CombatResult, DieRoll, PairResult } from '@lands-of-glory/game-core';
+import { CombatResult, DieRoll } from '@lands-of-glory/game-core';
 import { DiceRenderer } from './dice-renderer';
 
 /**
@@ -126,6 +126,8 @@ export class CombatDiceAnimation {
   private diceRows: DiceRow[] = [];
   private rollIntervalId?: number;
   private resultTimeoutId?: number;
+  private hintAnimationFrameId?: number;
+  private disposed = false;
 
   constructor(
     app: PIXI.Application,
@@ -152,7 +154,7 @@ export class CombatDiceAnimation {
     defenderColor: number,
     onComplete?: () => void
   ): void {
-    if (this.isPlaying) return;
+    if (this.isPlaying || this.disposed) return;
 
     this.isPlaying = true;
     this.onCompleteCallback = onComplete;
@@ -303,13 +305,10 @@ export class CombatDiceAnimation {
       return { isKing, troopType };
     };
     
-    const attackerInfo = parseTroopInfo(attackerName);
-    const defenderInfo = parseTroopInfo(defenderName);
+    const attackerInfo = { ...parseTroopInfo(attackerName), troopType: combatResult.attackerType };
+    const defenderInfo = { ...parseTroopInfo(defenderName), troopType: combatResult.defenderType };
     
     // Calculate header Y position (above the first dice row) - more space for crown
-    const rowHeight = 110;
-    const totalHeight = maxDice * rowHeight;
-    const firstRowY = 170; // More space below troop badges for crown
     const headerY = 65; // Slightly higher to make room
     const diceXSpacing = this.config.pairSpacing;
     const attackerX = centerX - diceXSpacing / 2;
@@ -511,8 +510,8 @@ export class CombatDiceAnimation {
       this.diceRows.push({
         attackerDice,
         defenderDice,
-        attackerRoll: attackerRoll || null as any,
-        defenderRoll: defenderRoll || null as any,
+        attackerRoll: attackerRoll ?? null,
+        defenderRoll: defenderRoll ?? null,
         rowY,
       });
     }
@@ -686,7 +685,7 @@ export class CombatDiceAnimation {
    * Würfel stay visible, only add these elements
    */
   private showFinalElements(playerColors: PlayerColors, parentContainer: PIXI.Container, combatResult: CombatResult): void {
-    this.diceRows.forEach(({ attackerDice, defenderDice, attackerRoll, defenderRoll, rowY }, index) => {
+    this.diceRows.forEach(({ attackerDice, defenderDice, attackerRoll, defenderRoll }, index) => {
       // Check if this is a complete pair (both sides have dice)
       const hasPair = attackerRoll && defenderRoll;
       
@@ -720,7 +719,7 @@ export class CombatDiceAnimation {
       if (hasPair) {
         const attackerTotal = attackerRoll.effectiveValue;
         const defenderTotal = defenderRoll.effectiveValue;
-        const attackerWins = attackerTotal > defenderTotal;
+        const attackerWins = combatResult.pairs[index]?.attackerWins ?? false;
         
         // Find VS container and add results
         const vsContainer = parentContainer.children.find(
@@ -921,7 +920,7 @@ export class CombatDiceAnimation {
       hintAlpha += 0.05;
       hint.alpha = hintAlpha;
       if (hintAlpha < 1) {
-        requestAnimationFrame(fadeInHint);
+        this.hintAnimationFrameId = requestAnimationFrame(fadeInHint);
       }
     };
     fadeInHint();
@@ -936,7 +935,7 @@ export class CombatDiceAnimation {
   /**
    * Close the animation - comprehensive cleanup to prevent memory leaks
    */
-  close(): void {
+  close(notifyComplete = true): void {
     if (!this.isPlaying && this.diceRows.length === 0) return;
 
     this.isPlaying = false;
@@ -950,6 +949,10 @@ export class CombatDiceAnimation {
       clearTimeout(this.resultTimeoutId);
       this.resultTimeoutId = undefined;
     }
+    if (this.hintAnimationFrameId) {
+      cancelAnimationFrame(this.hintAnimationFrameId);
+      this.hintAnimationFrameId = undefined;
+    }
     
     // Remove all event listeners
     this.container.eventMode = 'none';
@@ -962,12 +965,10 @@ export class CombatDiceAnimation {
       if (row.attackerDice && !row.attackerDice.destroyed) {
         row.attackerDice.removeChildren();
         row.attackerDice.destroy({ children: true });
-        row.attackerDice = null as any;
       }
       if (row.defenderDice && !row.defenderDice.destroyed) {
         row.defenderDice.removeChildren();
         row.defenderDice.destroy({ children: true });
-        row.defenderDice = null as any;
       }
     }
     this.diceRows = [];
@@ -994,10 +995,9 @@ export class CombatDiceAnimation {
     }
 
     // Clear callback
-    if (this.onCompleteCallback) {
-      this.onCompleteCallback();
-      this.onCompleteCallback = undefined;
-    }
+    const callback = this.onCompleteCallback;
+    this.onCompleteCallback = undefined;
+    if (notifyComplete) callback?.();
   }
 
   /**
@@ -1011,7 +1011,9 @@ export class CombatDiceAnimation {
    * Dispose animation resources - complete cleanup
    */
   dispose(): void {
-    this.close();
+    if (this.disposed) return;
+    this.disposed = true;
+    this.close(false);
     if (this.container && !this.container.destroyed) {
       this.container.destroy({ children: true });
     }

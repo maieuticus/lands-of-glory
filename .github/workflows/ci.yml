@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Quality (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm run type-check
+      - run: npm run lint
+      - run: npm run test:coverage
+      - run: npm run test:structure
+
+  browser:
+    name: Browser flows
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - uses: cypress-io/github-action@v6
+        with:
+          install: false
+          start: npm run dev:e2e
+          wait-on: http://127.0.0.1:3000/?e2e=1
+          wait-on-timeout: 120
+          command: npm run test:e2e

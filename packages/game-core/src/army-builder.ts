@@ -7,7 +7,7 @@
  * - Hauptmann (Captain): 1 Gold
  * - Infantry/Cavalry/Archer unit: 1 Gold each
  * - Each bonus point (strength) on a unit: 1 Gold
- * - Commanders with 3 units get a free 4th unit (strength = weakest unit)
+ * - Infantry commanders with 3 units get a free 4th unit (strength = weakest unit)
  */
 
 import {
@@ -19,7 +19,9 @@ import {
   createCommanderId,
   COMMANDER_SLOTS,
   COMMANDER_MAX_HEALTH,
+  MAX_ARMY_COMMANDERS,
 } from './types';
+import { isPositionInBounds } from './board';
 
 // ============================================================================
 // COST CONSTANTS
@@ -94,61 +96,9 @@ export interface ArmyValidationResult {
 // COST CALCULATION
 // ============================================================================
 
-/**
- * Calculate the cost of a single unit slot
- */
-function calculateUnitSlotCost(slot: UnitBuildConfig): number {
-  if (!slot.hasUnit) {
-    return 0;
-  }
-  return ARMY_BUILDER_COSTS.unit + (slot.bonusPoints * ARMY_BUILDER_COSTS.bonusPoint);
-}
-
-/**
- * Calculate the cost of a commander configuration
- * Includes the free bonus unit rule: Commanders with 3 units get a 4th free
- */
-function calculateCommanderCost(
-  config: CommanderBuildConfig,
-  applyFreeBonusUnit: boolean = true
-): { cost: number; freeUnitAdded: boolean } {
-  let cost = 0;
-  let freeUnitAdded = false;
-
-  // Commander base cost
-  if (config.type === 'captain') {
-    cost += ARMY_BUILDER_COSTS.captain;
-  }
-  // King is free
-
-  // Count units
-  const unitCount = config.slots.filter(s => s.hasUnit).length;
-
-  // Calculate unit costs
-  for (const slot of config.slots) {
-    cost += calculateUnitSlotCost(slot);
-  }
-
-  // Apply free bonus unit rule: Only for infantry commanders with exactly 3 units
-  // The free unit's strength equals the weakest unit the commander has
-  if (applyFreeBonusUnit && unitCount === 3 && config.troopType === 'infantry') {
-    // Find the weakest unit's bonus points
-    const activeUnits = config.slots
-      .filter(s => s.hasUnit)
-      .map(s => s.bonusPoints);
-    
-    if (activeUnits.length === 3) {
-      const weakestBonus = Math.min(...activeUnits);
-      // The 4th unit is free, so we subtract the cost of what would have been a paid unit
-      // But we don't add any cost - it's free!
-      freeUnitAdded = true;
-      // No cost subtraction needed since we only calculate what IS there
-      // The free unit is conceptually in the 4th slot, but since it's free,
-      // we just don't charge for it
-    }
-  }
-
-  return { cost, freeUnitAdded };
+/** One shared predicate for quoted cost and built army. */
+function qualifiesForFreeUnit(type: TroopType, unitCount: number): boolean {
+  return type === 'infantry' && unitCount === 3;
 }
 
 /**
@@ -164,7 +114,7 @@ export function calculateArmyCost(
   let freeBonusUnits = 0;
 
   for (const commander of config.commanders) {
-    const { cost, freeUnitAdded } = calculateCommanderCost(commander, applyFreeBonusUnit);
+    const freeUnitAdded = applyFreeBonusUnit && qualifiesForFreeUnit(commander.troopType, commander.slots.filter(slot => slot.hasUnit).length);
 
     // Split cost into components
     if (commander.type === 'captain') {
@@ -183,10 +133,7 @@ export function calculateArmyCost(
     }
   }
 
-  // Adjust for free units: we counted them above, so we need to subtract
-  // The cost of a free unit would be: 1 (base) + weakestBonus
-  // But since the unit doesn't exist in the config yet, we don't need to subtract
-  // The free unit is added during build phase, not in the cost calculation
+  // Free units are generated later and are never counted as purchases.
 
   return {
     commanderCosts,
@@ -214,6 +161,12 @@ export function validateArmyConfig(
   budget: number = DEFAULT_STARTING_BUDGET
 ): ArmyValidationResult {
   const errors: string[] = [];
+  if (!hasArmyStructure(config)) {
+    return { valid: false, errors: ['Malformed army configuration'],
+      cost: { commanderCosts: 0, unitCosts: 0, bonusPointCosts: 0, freeBonusUnits: 0, totalCost: 0 }, remainingBudget: budget };
+  }
+  if (!Number.isSafeInteger(budget) || budget < 0) errors.push('Budget must be a nonnegative integer');
+  if (config.commanders.length > MAX_ARMY_COMMANDERS) errors.push('Army exceeds start area capacity');
 
   // Check for exactly one king
   const kingCount = config.commanders.filter(c => c.type === 'king').length;
@@ -226,6 +179,8 @@ export function validateArmyConfig(
   // Check commander configurations
   for (let i = 0; i < config.commanders.length; i++) {
     const commander = config.commanders[i];
+    if (!['king', 'captain'].includes(commander.type)) errors.push(`Commander ${i + 1}: Invalid commander type`);
+    if (!['infantry', 'cavalry', 'archer'].includes(commander.troopType)) errors.push(`Commander ${i + 1}: Invalid troop type`);
     
     // Check slot count
     if (commander.slots.length !== COMMANDER_SLOTS) {
@@ -235,7 +190,7 @@ export function validateArmyConfig(
     // Check bonus point values
     for (let j = 0; j < commander.slots.length; j++) {
       const slot = commander.slots[j];
-      if (slot.bonusPoints < 0 || slot.bonusPoints > 3) {
+      if (!Number.isInteger(slot.bonusPoints) || slot.bonusPoints < 0 || slot.bonusPoints > 3) {
         errors.push(`Commander ${i + 1}, Slot ${j + 1}: Invalid bonus points ${slot.bonusPoints} (must be 0-3)`);
       }
     }
@@ -256,6 +211,11 @@ export function validateArmyConfig(
     cost,
     remainingBudget,
   };
+}
+
+function hasArmyStructure(config: ArmyConfig): boolean {
+  return !!config && Array.isArray(config.commanders) && config.commanders.every((c: CommanderBuildConfig) =>
+    !!c && Array.isArray(c.slots) && c.slots.every((s: UnitBuildConfig) => !!s && typeof s.hasUnit === 'boolean'));
 }
 
 // ============================================================================
@@ -300,15 +260,12 @@ function applyFreeBonusUnit(
   const activeUnits = units.filter((u): u is Unit => u !== null);
   
   // Only apply if exactly 3 units
-  if (activeUnits.length !== 3) {
+  if (!qualifiesForFreeUnit(troopType, activeUnits.length)) {
     return units;
   }
 
   // Find the first empty slot
   const emptySlotIndex = units.findIndex(u => u === null);
-  if (emptySlotIndex === -1) {
-    return units; // No empty slot
-  }
 
   // Find the weakest unit's bonus points
   const weakestBonus = Math.min(...activeUnits.map(u => u.bonusPoints)) as 0 | 1 | 2 | 3;
@@ -360,7 +317,7 @@ function buildCommander(
   return {
     id: commanderId,
     type: config.troopType,
-    position,
+    position: { ...position },
     health: COMMANDER_MAX_HEALTH,
     playerId,
     units,
@@ -395,6 +352,11 @@ export function buildArmy(
   if (positions.length < config.commanders.length) {
     throw new Error(`Not enough positions: need ${config.commanders.length}, have ${positions.length}`);
   }
+  const selected = positions.slice(0, config.commanders.length);
+  if (selected.some(position => !isPositionInBounds(position)) ||
+      new Set(selected.map(position => `${position.x},${position.y}`)).size !== selected.length) {
+    throw new Error('Invalid or overlapping army positions');
+  }
 
   // Build commanders
   const commanders: Commander[] = [];
@@ -417,16 +379,9 @@ export function buildArmy(
 // ============================================================================
 
 /**
- * Default army configuration (fits within 20 gold budget)
- * - 1 King (Infantry) with units: 0,0,0,0
- * - 1 Infantry Captain with units: 0,0,1
- * - 1 Cavalry Captain with units: 0,0,1
- * - 1 Archer Captain with units: 0,0,1
- * 
- * Total cost: King (free) + 3 Captains * 1 = 3 gold
- *             + 10 units * 1 = 10 gold
- *             + 3 bonus points = 3 gold
- *             = 16 gold total (within 20 gold budget)
+ * Default army: infantry king (0/0/0/0), two infantry captains,
+ * one cavalry captain and two archer captains (each 0/0/1/3).
+ * 5 captains + 24 explicitly purchased units + 20 bonus points = 49 gold.
  */
 export function getDefaultArmyConfig(): ArmyConfig {
   const createCaptainConfig = (troopType: TroopType): CommanderBuildConfig => ({
@@ -542,6 +497,7 @@ export function removeUnitFromCommanderConfig(
   config: CommanderBuildConfig,
   slotIndex: number
 ): CommanderBuildConfig {
+  if (!Number.isInteger(slotIndex) || slotIndex < 0 || slotIndex >= config.slots.length) return config;
   const newSlots = [...config.slots];
   newSlots[slotIndex] = { hasUnit: false, bonusPoints: 0 };
 
@@ -559,7 +515,7 @@ export function setUnitBonusPoints(
   slotIndex: number,
   bonusPoints: 0 | 1 | 2 | 3
 ): CommanderBuildConfig {
-  if (slotIndex < 0 || slotIndex >= config.slots.length) {
+  if (!Number.isInteger(slotIndex) || slotIndex < 0 || slotIndex >= config.slots.length) {
     return config;
   }
 

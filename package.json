@@ -8,15 +8,19 @@
     "apps/*"
   ],
   "scripts": {
-    "install": "npm install && npm --workspace=@lands-of-glory/game-core run build",
+    "install": "npm --workspace=@lands-of-glory/game-core run build",
     "dev": "npm --workspace=lands-of-glory-prototype run dev",
     "build": "npm --workspace=@lands-of-glory/game-core run build && npm --workspace=lands-of-glory-prototype run build",
     "test": "npm --workspace=@lands-of-glory/game-core run test",
+    "test:ci": "npm --workspace=@lands-of-glory/game-core run test:ci",
+    "test:coverage": "npm --workspace=@lands-of-glory/game-core run test:coverage",
     "test:structure": "node packages/game-core/tests/run-tests.js",
     "test:watch": "npm --workspace=@lands-of-glory/game-core run test:watch",
     "test:e2e": "npm --workspace=lands-of-glory-prototype run test:e2e",
+    "dev:e2e": "npm --workspace=lands-of-glory-prototype run dev:e2e",
+    "verify": "npm run build && npm run type-check && npm run lint && npm run test:coverage && npm run test:structure",
     "lint": "npm --workspace=@lands-of-glory/game-core run lint && npm --workspace=lands-of-glory-prototype run lint",
-    "type-check": "npm --workspace=@lands-of-glory/game-core run type-check && npm --workspace=lands-of-glory-prototype run type-check"
+    "type-check": "npm --workspace=@lands-of-glory/game-core run build && npm --workspace=lands-of-glory-prototype run type-check && tsc --project contracts/tsconfig.json"
   },
   "repository": {
     "type": "git",
@@ -36,6 +40,6 @@
   },
   "homepage": "https://github.com/maieuticus/lands-of-glory#readme",
   "devDependencies": {
-    "typescript": "^6.0.3"
+    "typescript": "^5.9.3"
   }
 }

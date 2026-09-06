@@ -5,7 +5,7 @@
  * Calculates points based on remaining units, commanders, and strength points
  */
 
-import { GameState, PlayerId, Unit, Commander } from './types';
+import { GameState, PlayerId } from './types';
 
 /**
  * Player score breakdown
@@ -49,10 +49,7 @@ export function calculateGameResults(state: GameState): GameResults | undefined 
   if (!winner) return undefined;
 
   // Get finish reason from last action
-  const lastAction = state.log[state.log.length - 1];
-  const finishReason = lastAction?.type === 'gameEnd' 
-    ? (lastAction.details as { reason?: 'king_defeated' | 'banner_captured' | 'stalemate' })?.reason 
-    : 'stalemate';
+  const finishReason = state.finishReason;
 
   const scores: PlayerScore[] = state.players.map(player => {
     let remainingUnits = 0;
@@ -94,7 +91,7 @@ export function calculateGameResults(state: GameState): GameResults | undefined 
   return {
     winner: winner.id,
     winnerName: winner.name,
-    finishReason: finishReason || 'stalemate',
+    finishReason: finishReason ?? 'stalemate',
     scores,
   };
 }

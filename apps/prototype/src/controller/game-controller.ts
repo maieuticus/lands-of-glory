@@ -1,1119 +1,629 @@
 /**
- * apps/prototype/src/controller/game-controller.ts
- *
- * Game controller for input handling and state management
- * PRODUCTION VERSION with all features
+ * Browser controller. The game core is the only authority for legal actions
+ * and state transitions; this class only coordinates input, animation and UI.
  */
-
 import {
-  GameState,
-  Position,
+  Action,
+  Banner,
   CommanderId,
-  Commander,
-  Unit,
-  createGame,
-  startGame,
-  endTurn,
-  getWinner,
+  CombatResult,
   GameConfig,
   GameRuleError,
+  GameState,
+  Position,
   TROOP_STATS,
-  resolveCombat,
+  applyCommand,
   applyCombatResult,
-  canAttack,
-  createRNG,
-  Banner,
-  CombatResult,
   calculateGameResults,
-  GameResults,
+  canAttack,
+  canCaptureBanner,
+  canMove,
+  createGame,
+  getEffectiveTroopType,
+  getHoldingCommander,
+  getPendingHoldingChoices,
+  getValidAttacks,
+  getValidMoves,
+  getWinner,
+  resolveCombat,
+  setHoldingTarget,
+  startGame,
 } from '@lands-of-glory/game-core';
-import { GameRenderer, UIState, DragCallbacks } from '../renderer/game-renderer';
 import { CombatDiceAnimation, DICE_SIZE_CONFIGS } from '../renderer/combat-animation';
+import { DragCallbacks, GameRenderer, UIState } from '../renderer/game-renderer';
 
-/**
- * Combat log entry
- */
-interface CombatLogEntry {
+export type InteractionPhase = 'idle' | 'combat' | 'holding' | 'disposed';
+
+export interface CombatLogEntry {
   id: string;
   turn: number;
-  type: 'move' | 'attack' | 'capture' | 'victory' | 'turn_end';
+  type: Action['type'];
   message: string;
   timestamp: Date;
-  details?: {
-    attacker?: string;
-    defender?: string;
-    casualties?: number;
-    attackerLosses?: number;
-    defenderLosses?: number;
-  };
 }
 
-/**
- * History entry for undo functionality
- */
 interface HistoryEntry {
-  gameState: GameState;
-  combatLog: CombatLogEntry[];
-  action: 'move' | 'attack' | 'capture' | 'turn_end';
+  state: GameState;
   description: string;
 }
 
-/**
- * Game controller - PRODUCTION VERSION
- */
+interface PendingCombat {
+  token: number;
+  sourceState: GameState;
+  result: CombatResult;
+}
+
+function playerColorToNumber(color: string): number {
+  const normalized = color.trim().replace(/^#/, '');
+  return /^[0-9a-f]{6}$/i.test(normalized) ? Number.parseInt(normalized, 16) : 0xffffff;
+}
+
+function troopName(type: string): string {
+  if (type === 'infantry') return 'Infanterie';
+  if (type === 'cavalry') return 'Kavallerie';
+  if (type === 'archer') return 'Bogenschützen';
+  return type;
+}
+
+function actionMessage(action: Action): string {
+  const details = action.details;
+  switch (action.type) {
+    case 'gameStart': return 'Spiel gestartet.';
+    case 'move': return `Kommandeur nach ${JSON.stringify(details.to)} bewegt.`;
+    case 'attack': {
+      const attackerLosses = Array.isArray(details.attackerCasualties) ? details.attackerCasualties.length : 0;
+      const defenderLosses = Array.isArray(details.defenderCasualties) ? details.defenderCasualties.length : 0;
+      return `Kampf beendet – Verluste ${attackerLosses}:${defenderLosses}.`;
+    }
+    case 'capture': return 'Gegnerisches Banner erobert.';
+    case 'hold': return details.targetId ? 'Gegnerischer Kommandeur festgehalten.' : 'Auf Festhalten verzichtet.';
+    case 'playerDefeated': return `Spieler ausgeschieden (${String(details.reason)}).`;
+    case 'endTurn': return 'Zug beendet.';
+    case 'gameEnd': return `Spiel beendet (${String(details.reason)}).`;
+  }
+}
+
 export class GameController {
   private gameState: GameState;
-  private renderer: GameRenderer;
+  private readonly renderer: GameRenderer;
+  private readonly combatAnimation: CombatDiceAnimation;
+  private readonly onExit?: () => void;
   private uiState: UIState = { debugEnabled: false };
   private selectedCommanderId?: CommanderId;
-  private combatLog: CombatLogEntry[] = [];
-  private logCallbacks: ((entry: CombatLogEntry) => void)[] = [];
-  private onVictoryCallbacks: ((winner: string) => void)[] = [];
-  private combatAnimation: CombatDiceAnimation;
+  private phase: InteractionPhase = 'idle';
+  private pendingCombat?: PendingCombat;
+  private operationToken = 0;
   private history: HistoryEntry[] = [];
-  private maxHistorySize = 20;
+  private readonly maxHistorySize = 20;
+  private readonly cleanupCallbacks: Array<() => void> = [];
+  private readonly stateCallbacks: Array<(state: GameState) => void> = [];
+  private readonly logCallbacks: Array<(entry: CombatLogEntry) => void> = [];
+  private readonly victoryCallbacks: Array<(winner: string) => void> = [];
+  private uiRoot?: HTMLElement;
+  private notificationTimer?: number;
+  private presentedVictoryFor?: GameState;
 
-  constructor(gameState: GameState, renderer: GameRenderer, diceSize: string = 'large') {
+  constructor(gameState: GameState, renderer: GameRenderer, diceSize = 'large', onExit?: () => void) {
     this.gameState = gameState;
     this.renderer = renderer;
-    const diceConfig = DICE_SIZE_CONFIGS[diceSize] || DICE_SIZE_CONFIGS['large'];
+    this.onExit = onExit;
+    const diceConfig = DICE_SIZE_CONFIGS[diceSize] ?? DICE_SIZE_CONFIGS.large;
     this.combatAnimation = new CombatDiceAnimation(renderer.getApp(), diceConfig);
     this.setupDragCallbacks();
   }
 
-  /**
-   * Get current game state
-   */
   getGameState(): GameState {
     return this.gameState;
   }
 
-  /**
-   * Get current UI state
-   */
   getUIState(): UIState {
     return { ...this.uiState };
   }
 
-  /**
-   * Get combat log
-   */
-  getCombatLog(): CombatLogEntry[] {
-    return [...this.combatLog];
+  getInteractionPhase(): InteractionPhase {
+    return this.phase;
   }
 
-  /**
-   * Subscribe to combat log updates
-   */
+  getCombatLog(): CombatLogEntry[] {
+    return this.gameState.log.map((action, index) => this.toLogEntry(action, index));
+  }
+
+  onStateChange(callback: (state: GameState) => void): () => void {
+    this.stateCallbacks.push(callback);
+    return () => this.removeCallback(this.stateCallbacks, callback);
+  }
+
   onCombatLog(callback: (entry: CombatLogEntry) => void): () => void {
     this.logCallbacks.push(callback);
-    return () => {
-      const index = this.logCallbacks.indexOf(callback);
-      if (index > -1) {
-        this.logCallbacks.splice(index, 1);
-      }
-    };
+    return () => this.removeCallback(this.logCallbacks, callback);
   }
 
-  /**
-   * Subscribe to victory event
-   */
   onVictory(callback: (winner: string) => void): () => void {
-    this.onVictoryCallbacks.push(callback);
-    return () => {
-      const index = this.onVictoryCallbacks.indexOf(callback);
-      if (index > -1) {
-        this.onVictoryCallbacks.splice(index, 1);
-      }
-    };
+    this.victoryCallbacks.push(callback);
+    return () => this.removeCallback(this.victoryCallbacks, callback);
   }
 
-  /**
-   * Initialize game and start playing
-   */
   initializeGame(): void {
-    this.gameState = startGame(this.gameState);
-    // Save initial state
-    this.saveToHistory('turn_end', 'Game started');
-    this.addLogEntry({
-      type: 'turn_end',
-      message: `Game started! ${this.gameState.players[0].name}'s turn.`,
-    });
+    if (this.phase === 'disposed') return;
+    if (this.gameState.gameStatus === 'setup') this.gameState = startGame(this.gameState);
+    this.history = [{ state: this.gameState, description: 'Spielstart' }];
+    this.mountUi();
+    this.installInputListeners();
+    this.updatePassivePhase();
     this.render();
   }
 
-  /**
-   * Save current state to history for undo functionality
-   */
-  private saveToHistory(action: HistoryEntry['action'], description: string): void {
-    // Deep clone game state
-    const stateCopy: GameState = {
-      ...this.gameState,
-      commanders: new Map(this.gameState.commanders),
-      banners: new Map(this.gameState.banners),
-      players: [...this.gameState.players],
-    };
-
-    const entry: HistoryEntry = {
-      gameState: stateCopy,
-      combatLog: [...this.combatLog],
-      action,
-      description,
-    };
-
-    this.history.push(entry);
-
-    // Keep only last N entries
-    if (this.history.length > this.maxHistorySize) {
-      this.history.shift();
+  handleKeyDown(key: string, modifiers: { shift: boolean; ctrl: boolean; alt: boolean }): void {
+    if (this.phase === 'disposed') return;
+    switch (key.toUpperCase()) {
+      case 'D':
+        if (this.phase !== 'combat') {
+          this.uiState = { ...this.uiState, debugEnabled: !this.uiState.debugEnabled };
+          this.render();
+        }
+        break;
+      case 'E':
+        this.endCurrentTurn();
+        break;
+      case 'Z':
+        if (modifiers.ctrl) this.undo();
+        break;
+      case 'ESCAPE':
+        if (this.phase === 'idle') {
+          this.clearSelection();
+          this.render();
+        }
+        break;
     }
   }
 
-  /**
-   * Undo last action
-   */
+  /** Public for the DOM controls and the narrow Cypress bridge. */
+  endCurrentTurn(): boolean {
+    if (!this.requireIdle('Der Zug kann während einer Auswahl oder Kampfanimation nicht beendet werden.')) return false;
+    return this.applyCoreAction(
+      () => applyCommand(this.gameState, { type: 'endTurn', playerId: this.gameState.activePlayerId }),
+      'Zug beendet',
+    );
+  }
+
   undo(): boolean {
+    if (!this.requireIdle('Während einer Auswahl oder Kampfanimation ist Rückgängig nicht möglich.')) return false;
     if (this.history.length <= 1) {
-      this.showError('Nothing to undo');
+      this.showMessage('Nichts zum Rückgängigmachen.', 'error');
       return false;
     }
-
-    // Remove current state
     this.history.pop();
-
-    // Restore previous state
-    const previousState = this.history[this.history.length - 1];
-    this.gameState = previousState.gameState;
-    this.combatLog = previousState.combatLog;
-
-    // Reset selection
-    this.selectedCommanderId = undefined;
-    this.uiState.selectedCommanderId = undefined;
-
-    this.showMessage(`Rückgängig: ${previousState.description}`, 'info');
+    const previous = this.history[this.history.length - 1];
+    this.gameState = previous.state;
+    this.presentedVictoryFor = undefined;
+    this.clearSelection();
+    this.updatePassivePhase();
+    this.showMessage(`Rückgängig: ${previous.description}`, 'info');
     this.render();
     return true;
   }
 
-  /**
-   * Check if undo is available
-   */
   canUndo(): boolean {
-    return this.history.length > 1;
+    return this.phase === 'idle' && this.history.length > 1;
   }
 
-  /**
-   * Get undo history for display
-   */
   getUndoHistory(): string[] {
-    return this.history.map(h => h.description);
+    return this.history.map(entry => entry.description);
   }
 
-  /**
-   * Setup drag-and-drop event callbacks
-   */
+  /** Executes the same drop route used by Pixi. Kept public for browser-flow tests. */
+  performDrop(commanderId: CommanderId, target: Position): boolean {
+    if (!this.requireIdle('Bitte zuerst die aktuelle Auswahl abschließen.')) return false;
+    const snapped = { x: Math.round(target.x), y: Math.round(target.y) };
+    this.clearSelection();
+    const enemy = this.findEnemyCommanderAt(snapped);
+    if (enemy) return this.beginCombat(commanderId, enemy.id);
+    const banner = this.findEnemyBannerAt(snapped);
+    if (banner) {
+      const validation = canCaptureBanner(this.gameState, commanderId, banner.id);
+      if (!validation.valid) return this.reject(validation.reason);
+      return this.applyCoreAction(() => applyCommand(this.gameState, {
+        type: 'capture', playerId: this.gameState.activePlayerId, attackerId: commanderId, bannerId: banner.id,
+      }), 'Banner erobert');
+    }
+    const validation = canMove(this.gameState, commanderId, snapped);
+    if (!validation.valid) return this.reject(validation.reason);
+    return this.applyCoreAction(() => applyCommand(this.gameState, {
+      type: 'move', playerId: this.gameState.activePlayerId, commanderId, target: snapped,
+    }), `Bewegung nach ${snapped.x}/${snapped.y}`);
+  }
+
+  chooseHoldingTarget(holderId: CommanderId, targetId: CommanderId | null): boolean {
+    if (this.phase !== 'holding') {
+      this.showMessage('Es gibt keine offene Festhalte-Auswahl.', 'error');
+      return false;
+    }
+    const choice = getPendingHoldingChoices(this.gameState)[0];
+    if (!choice || choice.holderId !== holderId) return this.reject('Die Festhalte-Auswahl ist nicht mehr aktuell.');
+    try {
+      const next = setHoldingTarget(this.gameState, choice.playerId, holderId, targetId);
+      this.commit(next, targetId ? 'Festhalteziel gewählt' : 'Auf Festhalten verzichtet');
+      return true;
+    } catch (error) {
+      return this.handleRuleError(error);
+    }
+  }
+
+  completeCombatAnimation(): boolean {
+    if (this.phase !== 'combat') return false;
+    this.combatAnimation.close();
+    return true;
+  }
+
+  destroy(): void {
+    if (this.phase === 'disposed') return;
+    this.operationToken++;
+    this.pendingCombat = undefined;
+    this.phase = 'disposed';
+    if (this.notificationTimer !== undefined) window.clearTimeout(this.notificationTimer);
+    this.combatAnimation.dispose();
+    this.renderer.setDragCallbacks({});
+    for (const cleanup of this.cleanupCallbacks.splice(0)) cleanup();
+    this.uiRoot?.remove();
+    this.uiRoot = undefined;
+    this.stateCallbacks.length = 0;
+    this.logCallbacks.length = 0;
+    this.victoryCallbacks.length = 0;
+  }
+
   private setupDragCallbacks(): void {
     const callbacks: DragCallbacks = {
-      onDragStart: (commanderId: CommanderId) => {
+      onDragStart: commanderId => {
+        if (!this.requireIdle('Eingabe während der laufenden Auflösung gesperrt.')) return;
         const commander = this.gameState.commanders.get(commanderId);
-        if (!commander) return;
-
-        // Check if it's the current player's commander
-        const activePlayer = this.gameState.players.find(p => p.id === this.gameState.activePlayerId);
-        if (!activePlayer?.commanders.includes(commanderId)) {
-          this.showError('Not your commander!');
+        if (!commander || commander.playerId !== this.gameState.activePlayerId) {
+          this.showMessage('Dieser Kommandeur gehört nicht zum aktiven Spieler.', 'error');
           return;
         }
-
-        // Check if commander has already acted
-        if (commander.hasActedThisTurn) {
-          this.showError('Commander has already acted this turn');
+        const hasAction = getValidMoves(this.gameState, commanderId).length > 0 ||
+          getValidAttacks(this.gameState, commanderId).length > 0 ||
+          [...this.gameState.banners.values()].some(banner => canCaptureBanner(this.gameState, commanderId, banner.id).valid);
+        if (!hasAction) {
+          this.showMessage('Dieser Kommandeur kann derzeit keine gültige Aktion ausführen.', 'error');
           return;
         }
-
         this.selectedCommanderId = commanderId;
-        this.uiState.selectedCommanderId = commanderId;
-        this.uiState.draggedCommanderId = commanderId;
+        this.uiState = { ...this.uiState, selectedCommanderId: commanderId, draggedCommanderId: commanderId };
         this.render();
       },
-      onDragMove: (position: Position) => {
-        this.uiState.currentDragTarget = position;
+      onDragMove: position => {
+        if (this.phase !== 'idle' || !this.selectedCommanderId) return;
+        this.uiState = { ...this.uiState, currentDragTarget: position };
         this.render();
       },
-      onDragEnd: (commanderId: CommanderId, target: Position) => {
-        this.uiState.draggedCommanderId = undefined;
-        this.uiState.currentDragTarget = undefined;
-
-        if (!this.selectedCommanderId) return;
-
-        // Round target position to ensure it's a valid grid coordinate
-        const snappedTarget: Position = {
-          x: Math.round(target.x),
-          y: Math.round(target.y)
-        };
-
-        // Check if there's an enemy at target position (potential attack)
-        const enemyCommander = this.findEnemyCommanderAtPosition(snappedTarget);
-        if (enemyCommander) {
-          this.tryAttackCommander(this.selectedCommanderId, enemyCommander.id);
+      onDragEnd: (commanderId, target) => {
+        this.uiState = { ...this.uiState, draggedCommanderId: undefined, currentDragTarget: undefined };
+        if (this.selectedCommanderId !== commanderId) {
+          this.clearSelection();
+          this.render();
           return;
         }
-
-        // Check if there's an enemy banner at target position
-        const enemyBanner = this.findEnemyBannerAtPosition(snappedTarget);
-        if (enemyBanner) {
-          this.tryAttackBanner(this.selectedCommanderId, enemyBanner);
-          return;
-        }
-
-        // Try to move selected commander
-        this.tryMoveCommander(this.selectedCommanderId, snappedTarget);
+        this.performDrop(commanderId, target);
       },
     };
-
     this.renderer.setDragCallbacks(callbacks);
   }
 
-  /**
-   * Handle key press
-   */
-  handleKeyDown(key: string, modifiers: { shift: boolean; ctrl: boolean; alt: boolean }): void {
-    switch (key.toUpperCase()) {
-      case 'D':
-        this.uiState.debugEnabled = !this.uiState.debugEnabled;
-        this.render();
-        break;
-      case 'E':
-        this.tryEndTurn();
-        break;
-      case 'Z':
-        if (modifiers.ctrl) {
-          this.undo();
-        }
-        break;
-      case 'ESCAPE':
-        this.selectedCommanderId = undefined;
-        this.uiState.selectedCommanderId = undefined;
-        this.render();
-        break;
-    }
-  }
-
-  /**
-   * Try to move a commander
-   */
-  private tryMoveCommander(commanderId: CommanderId, target: Position): void {
+  private beginCombat(attackerId: CommanderId, defenderId: CommanderId): boolean {
+    const validation = canAttack(this.gameState, attackerId, defenderId);
+    if (!validation.valid) return this.reject(validation.reason);
     try {
-      const commander = this.gameState.commanders.get(commanderId);
-      if (!commander) {
-        this.showError('Commander not found');
-        return;
-      }
-
-      // Check if commander has already acted this turn
-      if (commander.hasActedThisTurn) {
-        this.showError('Commander has already acted this turn');
-        return;
-      }
-
-      // Check if commander is held by enemy infantry
-      if (this.isCommanderHeld(commanderId)) {
-        this.showError('Commander is held by enemy infantry! Can only attack the holder.');
-        return;
-      }
-
-      // Validate move distance
-      const distance = Math.max(
-        Math.abs(commander.position.x - target.x),
-        Math.abs(commander.position.y - target.y)
-      );
-
-      if (distance === 0) {
-        this.showError('Already at that position');
-        return;
-      }
-
-      // Determine move range - empty commanders move like cavalry (2 tiles)
-      const hasActiveUnits = commander.units.some(
-        (u) => u !== null && u.status === 'active'
-      );
-      const maxDistance = hasActiveUnits ? TROOP_STATS[commander.type].moveRange : 2;
-      
-      if (distance > maxDistance) {
-        this.showError(`Too far! Max ${maxDistance} tiles`);
-        return;
-      }
-
-      // Check if target is occupied
-      for (const otherCmd of this.gameState.commanders.values()) {
-        if (otherCmd.id !== commanderId &&
-            otherCmd.position.x === target.x &&
-            otherCmd.position.y === target.y) {
-          this.showError('Position occupied');
-          return;
-        }
-      }
-
-      // Check if target is occupied by a banner
-      for (const banner of this.gameState.banners.values()) {
-        if (banner.position.x === target.x &&
-            banner.position.y === target.y &&
-            banner.status === 'standing') {
-          this.showError('Cannot move onto banner');
-          return;
-        }
-      }
-
-      // Move commander
-      const newGameState = {
-        ...this.gameState,
-        commanders: new Map(this.gameState.commanders),
-      };
-
-      const updatedCommander = {
-        ...commander,
-        position: target,
-        hasActedThisTurn: true,
-      };
-
-      newGameState.commanders.set(commanderId, updatedCommander);
-      this.gameState = newGameState;
-
-      this.selectedCommanderId = undefined;
-      this.uiState.selectedCommanderId = undefined;
-
-      // Save to history
-      this.saveToHistory('move', `${commander.type} moved to (${target.x}, ${target.y})`);
-
-      // Add to combat log
-      this.addLogEntry({
-        type: 'move',
-        message: `${commander.type} moved to (${target.x}, ${target.y})`,
-      });
-
-      this.showMessage(`${commander.type} moved`, 'success');
+      const sourceState = this.gameState;
+      const result = resolveCombat(sourceState, attackerId, defenderId);
+      const attacker = sourceState.commanders.get(attackerId)!;
+      const defender = sourceState.commanders.get(defenderId)!;
+      const attackerPlayer = sourceState.players.find(player => player.id === attacker.playerId)!;
+      const defenderPlayer = sourceState.players.find(player => player.id === defender.playerId)!;
+      const token = ++this.operationToken;
+      this.phase = 'combat';
+      this.pendingCombat = { token, sourceState, result };
       this.render();
+      this.combatAnimation.play(
+        result,
+        `${attacker.isKing ? 'König ' : ''}${troopName(result.attackerType)}`,
+        `${defender.isKing ? 'König ' : ''}${troopName(result.defenderType)}`,
+        playerColorToNumber(attackerPlayer.color),
+        playerColorToNumber(defenderPlayer.color),
+        () => this.finishCombat(token),
+      );
+      return true;
     } catch (error) {
-      if (error instanceof GameRuleError) {
-        this.showError(error.message);
-      } else {
-        this.showError('Move failed');
-      }
+      this.phase = 'idle';
+      this.pendingCombat = undefined;
+      return this.handleRuleError(error);
     }
   }
 
-  /**
-   * Check if commander is held by enemy infantry
-   * Per Spec 004: Infantry holds adjacent enemy commanders
-   * 
-   * EXCEPTION: Commander is NOT held if:
-   * 1. Commander has no units (empty commanders fight as cavalry and cannot be held)
-   * 2. There are multiple adjacent enemy commanders (not just the infantry holder)
-   * 3. The infantry owner allows movement (not implemented - requires UI)
-   */
-  private isCommanderHeld(commanderId: CommanderId): boolean {
-    const commander = this.gameState.commanders.get(commanderId);
-    if (!commander) return false;
-
-    // Empty commanders (no units) cannot be held - they fight as cavalry
-    const hasActiveUnits = commander.units.some(
-      (u) => u !== null && u.status === 'active'
-    );
-    if (!hasActiveUnits) {
-      return false;
+  private finishCombat(token: number): void {
+    const pending = this.pendingCombat;
+    if (this.phase !== 'combat' || !pending || pending.token !== token ||
+        pending.sourceState !== this.gameState || token !== this.operationToken) return;
+    this.pendingCombat = undefined;
+    try {
+      const next = applyCombatResult(pending.sourceState, pending.result);
+      this.phase = 'idle';
+      this.commit(next, 'Kampf aufgelöst');
+    } catch (error) {
+      this.phase = 'idle';
+      this.handleRuleError(error);
+      this.render();
     }
+  }
 
-    // Check all adjacent positions for enemy commanders
-    const adjacentPositions = [
-      { x: commander.position.x - 1, y: commander.position.y },
-      { x: commander.position.x + 1, y: commander.position.y },
-      { x: commander.position.x, y: commander.position.y - 1 },
-      { x: commander.position.x, y: commander.position.y + 1 },
-      { x: commander.position.x - 1, y: commander.position.y - 1 },
-      { x: commander.position.x + 1, y: commander.position.y - 1 },
-      { x: commander.position.x - 1, y: commander.position.y + 1 },
-      { x: commander.position.x + 1, y: commander.position.y + 1 },
-    ];
-
-    let adjacentEnemyInfantry: Commander | null = null;
-    let adjacentEnemyCount = 0;
-
-    for (const [id, cmd] of this.gameState.commanders) {
-      if (cmd.playerId !== commander.playerId &&
-          adjacentPositions.some(pos => pos.x === cmd.position.x && pos.y === cmd.position.y)) {
-        adjacentEnemyCount++;
-        
-        // Only infantry WITH active units can hold other commanders
-        // Empty commanders (even infantry type) fight as cavalry and cannot hold
-        if (cmd.type === 'infantry') {
-          const cmdHasActiveUnits = cmd.units.some(
-            (u) => u !== null && u.status === 'active'
-          );
-          if (cmdHasActiveUnits) {
-            adjacentEnemyInfantry = cmd;
-          }
-        }
-      }
-    }
-
-    // Held only if:
-    // - There is exactly one adjacent enemy infantry
-    // - AND there are no other adjacent enemy commanders
-    if (adjacentEnemyInfantry && adjacentEnemyCount === 1) {
+  private applyCoreAction(action: () => GameState, description: string): boolean {
+    try {
+      this.commit(action(), description);
       return true;
+    } catch (error) {
+      return this.handleRuleError(error);
     }
+  }
 
+  private commit(next: GameState, description: string): void {
+    const previousLogLength = this.gameState.log.length;
+    this.gameState = next;
+    this.history.push({ state: next, description });
+    if (this.history.length > this.maxHistorySize) this.history.shift();
+    this.clearSelection();
+    this.updatePassivePhase();
+    const newActions = next.log.slice(previousLogLength);
+    newActions.forEach((action, index) => {
+      const entry = this.toLogEntry(action, previousLogLength + index);
+      this.logCallbacks.forEach(callback => callback(entry));
+    });
+    this.render();
+  }
+
+  private updatePassivePhase(): void {
+    if (this.phase === 'disposed' || this.phase === 'combat') return;
+    this.phase = getPendingHoldingChoices(this.gameState).length > 0 ? 'holding' : 'idle';
+  }
+
+  private requireIdle(message: string): boolean {
+    if (this.phase === 'idle' && this.gameState.gameStatus === 'active') return true;
+    this.showMessage(this.gameState.gameStatus === 'finished' ? 'Das Spiel ist beendet.' : message, 'warning');
     return false;
   }
 
-  /**
-   * Get the commander holding this commander (if any)
-   * Returns the holding commander only if this commander is actually held
-   */
-  private getHoldingCommander(commanderId: CommanderId): Commander | undefined {
-    // Only return holding commander if the commander is actually held
-    if (!this.isCommanderHeld(commanderId)) {
-      return undefined;
-    }
-
-    const commander = this.gameState.commanders.get(commanderId);
-    if (!commander) return undefined;
-
-    const adjacentPositions = [
-      { x: commander.position.x - 1, y: commander.position.y },
-      { x: commander.position.x + 1, y: commander.position.y },
-      { x: commander.position.x, y: commander.position.y - 1 },
-      { x: commander.position.x, y: commander.position.y + 1 },
-      { x: commander.position.x - 1, y: commander.position.y - 1 },
-      { x: commander.position.x + 1, y: commander.position.y - 1 },
-      { x: commander.position.x - 1, y: commander.position.y + 1 },
-      { x: commander.position.x + 1, y: commander.position.y + 1 },
-    ];
-
-    for (const [id, cmd] of this.gameState.commanders) {
-      if (cmd.playerId !== commander.playerId &&
-          cmd.type === 'infantry' &&
-          adjacentPositions.some(pos => pos.x === cmd.position.x && pos.y === cmd.position.y)) {
-        // Only return if the infantry has active units (empty commanders cannot hold)
-        const cmdHasActiveUnits = cmd.units.some(
-          (u) => u !== null && u.status === 'active'
-        );
-        if (cmdHasActiveUnits) {
-          return cmd;
-        }
-      }
-    }
-
-    return undefined;
+  private reject(reason?: string): false {
+    this.clearSelection();
+    this.showMessage(reason ?? 'Ungültige Aktion.', 'error');
+    this.render();
+    return false;
   }
 
-  /**
-   * Try to attack an enemy commander
-   */
-  private tryAttackCommander(attackerId: CommanderId, defenderId: CommanderId): void {
-    try {
-      // Validate attack
-      const validation = canAttack(this.gameState, attackerId, defenderId);
-      if (!validation.valid) {
-        this.showError(validation.reason || 'Invalid attack');
-        return;
-      }
-
-      const attacker = this.gameState.commanders.get(attackerId);
-      const defender = this.gameState.commanders.get(defenderId);
-
-      if (!attacker || !defender) {
-        this.showError('Commander not found');
-        return;
-      }
-
-      // Check archer rule: can only move OR shoot, not both
-      if (attacker.type === 'archer' && this.hasCommanderMovedThisTurn(attackerId)) {
-        this.showError('Archers can only move OR shoot in a turn, not both');
-        return;
-      }
-
-      // Check if attacker is empty (no active units) - empty commanders fight as cavalry
-      const attackerHasActiveUnits = attacker.units.some(
-        (u) => u !== null && u.status === 'active'
-      );
-      
-      // Cavalry moves adjacent to target before attacking
-      // Empty commanders (fighting as cavalry) also move adjacent
-      if (attacker.type === 'cavalry' || !attackerHasActiveUnits) {
-        const dx = Math.abs(attacker.position.x - defender.position.x);
-        const dy = Math.abs(attacker.position.y - defender.position.y);
-        const distance = Math.max(dx, dy);
-        
-        if (distance > 1) {
-          // Find adjacent position to move to
-          const adjacentPos = this.findAdjacentPosition(attacker.position, defender.position);
-          if (adjacentPos) {
-            // Move attacker to adjacent position
-            const newCommanders = new Map(this.gameState.commanders);
-            newCommanders.set(attackerId, {
-              ...attacker,
-              position: adjacentPos,
-            });
-            this.gameState = {
-              ...this.gameState,
-              commanders: newCommanders,
-            };
-            const msg = !attackerHasActiveUnits ? 'Kommandeur (als Kavallerie) rückt vor!' : 'Kavallerie rückt vor!';
-            this.showMessage(msg, 'info');
-          }
-        }
-      }
-
-      // Note: Held commanders can attack any target, not just the holder
-
-      // Create RNG for combat
-      const rng = createRNG(Date.now());
-
-      // Resolve combat
-      const combatResult = resolveCombat(this.gameState, attackerId, defenderId, rng);
-
-      // Helper to translate troop type
-      const translateTroopType = (type: string, hasUnits: boolean): string => {
-        // Empty commanders fight as cavalry
-        if (!hasUnits) return 'Kavallerie';
-        switch (type) {
-          case 'infantry': return 'Infanterie';
-          case 'cavalry': return 'Kavallerie';
-          case 'archer': return 'Bogenschütze';
-          default: return type;
-        }
-      };
-
-      // Check if commanders have units
-      const attackerHasUnits = attacker.units.some(
-        (u) => u !== null && u.status === 'active'
-      );
-      const defenderHasUnits = defender.units.some(
-        (u) => u !== null && u.status === 'active'
-      );
-
-      // Get names and colors for animation
-      // Empty commanders are displayed as "Kavallerie"
-      const attackerName = `${attacker.isKing ? 'König ' : ''}${translateTroopType(attacker.type, attackerHasUnits)}`;
-      const defenderName = `${defender.isKing ? 'König ' : ''}${translateTroopType(defender.type, defenderHasUnits)}`;
-      
-      // Get player colors from array
-      const attackerPlayer = this.gameState.players.find(p => p.id === attacker.playerId);
-      const defenderPlayer = this.gameState.players.find(p => p.id === defender.playerId);
-      const attackerColor = attackerPlayer?.color ? parseInt(attackerPlayer.color.replace('#', '0x')) : 0xff6b6b;
-      const defenderColor = defenderPlayer?.color ? parseInt(defenderPlayer.color.replace('#', '0x')) : 0x4dabf7;
-
-      // Show dice animation
-      this.combatAnimation.play(combatResult, attackerName, defenderName, attackerColor, defenderColor, () => {
-        // Apply combat result after animation
-        this.applyCombatAfterAnimation(combatResult, attackerId, attacker, defender);
-      });
-    } catch (error) {
-      if (error instanceof GameRuleError) {
-        this.showError(error.message);
-      } else {
-        this.showError('Combat failed');
-      }
-    }
+  private handleRuleError(error: unknown): false {
+    const message = error instanceof GameRuleError || error instanceof Error ? error.message : 'Unbekannter Regelfehler.';
+    return this.reject(message);
   }
 
-  /**
-   * Apply combat result after animation completes
-   */
-  private applyCombatAfterAnimation(
-    combatResult: CombatResult,
-    attackerId: CommanderId,
-    attacker: Commander,
-    defender: Commander
-  ): void {
-    // Apply combat result
-    this.gameState = applyCombatResult(this.gameState, combatResult);
-
-    // Mark attacker as having acted
-    const updatedAttacker = this.gameState.commanders.get(attackerId);
-    if (updatedAttacker) {
-      const updatedCommanders = new Map(this.gameState.commanders);
-      updatedCommanders.set(attackerId, { ...updatedAttacker, hasActedThisTurn: true });
-      this.gameState = { ...this.gameState, commanders: updatedCommanders };
-    }
-
-    // Build result message and log
-    this.logCombatResult(combatResult, attacker, defender);
-
-      this.selectedCommanderId = undefined;
-      this.uiState.selectedCommanderId = undefined;
-
-      // Save to history after combat
-      this.saveToHistory('attack', `${attacker.type} attacked ${defender.type}`);
-
-      // Check victory conditions
-      this.checkVictoryConditions();
-
-      this.render();
+  private clearSelection(): void {
+    this.selectedCommanderId = undefined;
+    this.uiState = {
+      ...this.uiState,
+      selectedCommanderId: undefined,
+      draggedCommanderId: undefined,
+      currentDragTarget: undefined,
+    };
   }
 
-  /**
-   * Check if commander has already moved this turn
-   */
-  private hasCommanderMovedThisTurn(commanderId: CommanderId): boolean {
-    const commander = this.gameState.commanders.get(commanderId);
-    return commander?.hasActedThisTurn ?? false;
+  private findEnemyCommanderAt(position: Position) {
+    return [...this.gameState.commanders.values()].find(commander =>
+      commander.playerId !== this.gameState.activePlayerId &&
+      commander.position.x === position.x && commander.position.y === position.y);
   }
 
-  /**
-   * Log combat result
-   */
-  private logCombatResult(
-    result: CombatResult,
-    attacker: Commander,
-    defender: Commander
-  ): void {
-    const attackerName = `${attacker.isKing ? 'King ' : ''}${attacker.type}`;
-    const defenderName = `${defender.isKing ? 'King ' : ''}${defender.type}`;
+  private findEnemyBannerAt(position: Position): Banner | undefined {
+    return [...this.gameState.banners.values()].find(banner =>
+      banner.playerId !== this.gameState.activePlayerId && banner.status === 'standing' &&
+      banner.position.x === position.x && banner.position.y === position.y);
+  }
 
-    let message = `${attackerName} attacked ${defenderName}! `;
-    message += `Attacker lost ${result.attackerCasualties.length}, `;
-    message += `Defender lost ${result.defenderCasualties.length}.`;
-
-    if (result.attackerCommanderDefeated) {
-      message += ` ${attackerName} defeated!`;
-    }
-    if (result.defenderCommanderDefeated) {
-      message += ` ${defenderName} defeated!`;
-    }
-
-    this.addLogEntry({
-      type: 'attack',
-      message,
-      details: {
-        attacker: attackerName,
-        defender: defenderName,
-        attackerLosses: result.attackerCasualties.length,
-        defenderLosses: result.defenderCasualties.length,
-      },
+  private installInputListeners(): void {
+    const keydown = (event: KeyboardEvent) => this.handleKeyDown(event.key, {
+      shift: event.shiftKey, ctrl: event.ctrlKey, alt: event.altKey,
     });
+    window.addEventListener('keydown', keydown);
+    this.cleanupCallbacks.push(() => window.removeEventListener('keydown', keydown));
 
-    this.showMessage(message, 'success');
-  }
-
-  /**
-   * Try to attack an enemy banner
-   */
-  private tryAttackBanner(attackerId: CommanderId, banner: Banner): void {
-    try {
-      const attacker = this.gameState.commanders.get(attackerId);
-      if (!attacker) {
-        this.showError('Attacker not found');
-        return;
-      }
-
-      if (attacker.hasActedThisTurn) {
-        this.showError('Commander has already acted this turn');
-        return;
-      }
-
-      // Check if attacker has units (empty commanders fight as cavalry)
-      const attackerHasUnits = attacker.units.some(
-        (u) => u !== null && u.status === 'active'
-      );
-      
-      // Check range - cavalry (and empty commanders) can attack from distance 2
-      // Other units must be adjacent (distance 1)
-      const distance = Math.max(
-        Math.abs(attacker.position.x - banner.position.x),
-        Math.abs(attacker.position.y - banner.position.y)
-      );
-      
-      const maxAttackDistance = (attacker.type === 'cavalry' || !attackerHasUnits) ? 2 : 1;
-
-      if (distance > maxAttackDistance) {
-        this.showError(`Must be within ${maxAttackDistance} tiles to capture banner`);
-        return;
-      }
-      
-      // Cavalry moves adjacent to banner before capturing (if not already adjacent)
-      if ((attacker.type === 'cavalry' || !attackerHasUnits) && distance > 1) {
-        const adjacentPos = this.findAdjacentPosition(attacker.position, banner.position);
-        if (adjacentPos) {
-          // Move attacker to adjacent position
-          const newCommanders = new Map(this.gameState.commanders);
-          newCommanders.set(attackerId, {
-            ...attacker,
-            position: adjacentPos,
-          });
-          this.gameState = {
-            ...this.gameState,
-            commanders: newCommanders,
-          };
-          const msg = !attackerHasUnits ? 'Kommandeur (als Kavallerie) rückt zum Banner vor!' : 'Kavallerie rückt zum Banner vor!';
-          this.showMessage(msg, 'info');
-        }
-      }
-
-      // Check troop type (archers cannot capture banners - Spec 005)
-      // Also check if empty commander - they fight as cavalry and CAN capture
-      const attackerHasUnitsForCheck = attacker.units.some(
-        (u) => u !== null && u.status === 'active'
-      );
-      if (attacker.type === 'archer' && attackerHasUnitsForCheck) {
-        this.showError('Archers cannot capture banners in melee');
-        return;
-      }
-
-      // Reload attacker (position may have changed if cavalry moved)
-      const updatedAttacker = this.gameState.commanders.get(attackerId);
-      if (!updatedAttacker) {
-        this.showError('Attacker not found after movement');
-        return;
-      }
-
-      // Capture the banner - attacker moves to banner position
-      const updatedBanners = new Map(this.gameState.banners);
-      updatedBanners.set(banner.id, { ...banner, status: 'captured' });
-
-      // Move attacker to banner position and mark as acted
-      const updatedCommanders = new Map(this.gameState.commanders);
-      updatedCommanders.set(attackerId, { 
-        ...updatedAttacker, 
-        position: { ...banner.position },
-        hasActedThisTurn: true 
-      });
-
-      this.gameState = {
-        ...this.gameState,
-        banners: updatedBanners,
-        commanders: updatedCommanders,
-      };
-
-      this.selectedCommanderId = undefined;
-      this.uiState.selectedCommanderId = undefined;
-
-      // Add to log
-      const player = this.gameState.players.find(p => p.id === attacker.playerId);
-      this.addLogEntry({
-        type: 'capture',
-        message: `${player?.name} captured the enemy banner!`,
-      });
-
-      // Save to history
-      this.saveToHistory('capture', 'Banner captured');
-
-      this.showMessage('Banner captured!', 'success');
-
-      // Check victory
-      this.checkVictoryConditions();
+    const canvas = this.renderer.getApp().view as HTMLCanvasElement;
+    const wheel = (event: WheelEvent) => {
+      event.preventDefault();
+      this.renderer.setZoom(this.renderer.getCamera().zoom * (event.deltaY > 0 ? 0.9 : 1.1));
       this.render();
-    } catch (error) {
-      if (error instanceof GameRuleError) {
-        this.showError(error.message);
-      } else {
-        this.showError('Banner capture failed');
-      }
-    }
+    };
+    canvas.addEventListener('wheel', wheel, { passive: false });
+    this.cleanupCallbacks.push(() => canvas.removeEventListener('wheel', wheel));
   }
 
-  /**
-   * Try to end current turn
-   */
-  private tryEndTurn(): void {
-    try {
-      const currentPlayer = this.gameState.players.find(p => p.id === this.gameState.activePlayerId);
-
-      this.gameState = endTurn(this.gameState);
-      this.selectedCommanderId = undefined;
-      this.uiState.selectedCommanderId = undefined;
-
-      const nextPlayer = this.gameState.players.find(p => p.id === this.gameState.activePlayerId);
-
-      this.addLogEntry({
-        type: 'turn_end',
-        message: `Turn ${this.gameState.turnNumber} - ${nextPlayer?.name}'s turn`,
-      });
-
-      // Save to history
-      this.saveToHistory('turn_end', `Turn ended - ${nextPlayer?.name}'s turn`);
-
-      this.showMessage(`Turn ended. ${nextPlayer?.name}'s turn.`, 'info');
-      this.render();
-    } catch (error) {
-      if (error instanceof GameRuleError) {
-        this.showError(error.message);
-      } else {
-        this.showError('Failed to end turn');
-      }
-    }
+  private mountUi(): void {
+    const host = (this.renderer.getApp().view as HTMLCanvasElement).parentElement;
+    if (!host) return;
+    this.uiRoot = document.createElement('div');
+    this.uiRoot.id = 'game-ui';
+    this.uiRoot.className = 'ui-overlay';
+    this.uiRoot.innerHTML = `
+      <header class="game-topbar ui-panel">
+        <div class="turn-summary"><span id="active-player-color"></span><strong id="active-player-name"></strong><span id="round-label"></span></div>
+        <div class="game-actions">
+          <button id="undo-action" class="btn btn-secondary" data-testid="undo">Rückgängig</button>
+          <button id="debug-action" class="btn btn-secondary" data-testid="debug">Debug</button>
+          <button id="end-turn-action" class="btn btn-primary" data-testid="end-turn">Zug beenden</button>
+          <button id="menu-action" class="btn btn-secondary" data-testid="menu">Menü</button>
+        </div>
+      </header>
+      <aside id="unit-info-panel" class="selected-info ui-panel" hidden></aside>
+      <aside class="combat-log ui-panel"><h3>Spielprotokoll</h3><div id="combat-log-entries"></div></aside>
+      <div class="controls-help ui-panel">Ziehen: Bewegen/Angreifen · <kbd>E</kbd> Zugende · <kbd>Strg+Z</kbd> Rückgängig · <kbd>D</kbd> Debug</div>
+      <div id="game-notification" class="game-notification" role="status" aria-live="polite" hidden></div>
+      <div id="holding-dialog-host"></div>`;
+    host.appendChild(this.uiRoot);
+    this.listenToUi('#undo-action', () => this.undo());
+    this.listenToUi('#debug-action', () => this.handleKeyDown('D', { shift: false, ctrl: false, alt: false }));
+    this.listenToUi('#end-turn-action', () => this.endCurrentTurn());
+    this.listenToUi('#menu-action', () => this.onExit?.());
   }
 
-  /**
-   * Check and handle victory conditions
-   * Also checks if a king was defeated and ends the game immediately
-   */
-  private checkVictoryConditions(): void {
-    // Check if game is already finished
-    if (this.gameState.gameStatus === 'finished') {
+  private listenToUi(selector: string, callback: () => void): void {
+    const element = this.uiRoot?.querySelector(selector);
+    if (!element) return;
+    element.addEventListener('click', callback);
+    this.cleanupCallbacks.push(() => element.removeEventListener('click', callback));
+  }
+
+  private render(): void {
+    if (this.phase === 'disposed') return;
+    this.uiState = { ...this.uiState, selectedCommanderId: this.selectedCommanderId };
+    this.renderer.render(this.gameState, this.uiState);
+    this.renderUi();
+    this.stateCallbacks.forEach(callback => callback(this.gameState));
+    if (this.gameState.gameStatus === 'finished' && this.presentedVictoryFor !== this.gameState) {
+      this.presentedVictoryFor = this.gameState;
+      const results = calculateGameResults(this.gameState);
+      if (results) this.renderer.showGameResults(results);
       const winner = getWinner(this.gameState);
-      if (winner) {
-        this.addLogEntry({
-          type: 'victory',
-          message: `🎉 ${winner.name} wins the game!`,
-        });
+      if (winner) this.victoryCallbacks.forEach(callback => callback(winner.name));
+    }
+  }
 
-        // Notify callbacks
-        this.onVictoryCallbacks.forEach(cb => cb(winner.name));
+  private renderUi(): void {
+    if (!this.uiRoot) return;
+    const activePlayer = this.gameState.players.find(player => player.id === this.gameState.activePlayerId);
+    this.setText('#active-player-name', activePlayer?.name ?? '–');
+    this.setText('#round-label', `Runde ${this.gameState.turnNumber}`);
+    const color = this.uiRoot.querySelector<HTMLElement>('#active-player-color');
+    if (color) color.style.backgroundColor = activePlayer?.color ?? '#fff';
+    this.uiRoot.classList.toggle('debug-mode', this.uiState.debugEnabled);
+    const busy = this.phase !== 'idle' || this.gameState.gameStatus !== 'active';
+    this.setDisabled('#end-turn-action', busy);
+    this.setDisabled('#undo-action', !this.canUndo());
+    this.renderUnitInfo();
+    this.renderLog();
+    this.renderHoldingDialog();
+  }
 
-        this.showMessage(`🎉 ${winner.name} wins!`, 'success');
-        
-        // Show game results
-        this.showGameResults();
-      }
+  private renderUnitInfo(): void {
+    const panel = this.uiRoot?.querySelector<HTMLElement>('#unit-info-panel');
+    const commander = this.selectedCommanderId ? this.gameState.commanders.get(this.selectedCommanderId) : undefined;
+    if (!panel || !commander) {
+      if (panel) panel.hidden = true;
       return;
     }
-    
-    // Check if a king was defeated - end game immediately
-    for (const player of this.gameState.players) {
-      // Check if player's king still exists
-      let kingExists = false;
-      for (const commanderId of player.commanders) {
-        const commander = this.gameState.commanders.get(commanderId);
-        if (commander?.isKing) {
-          kingExists = true;
-          break;
-        }
-      }
-      
-      if (!kingExists) {
-        // King was defeated - end game
-        const winner = this.gameState.players.find(p => p.id !== player.id);
-        if (winner) {
-          // Set game as finished
-          this.gameState = {
-            ...this.gameState,
-            gameStatus: 'finished',
-            winner: winner.id,
-          };
-          
-          this.addLogEntry({
-            type: 'victory',
-            message: `🎉 ${winner.name} wins! König ${player.name} wurde besiegt!`,
-          });
-
-          // Notify callbacks
-          this.onVictoryCallbacks.forEach(cb => cb(winner.name));
-
-          this.showMessage(`🎉 ${winner.name} wins! König besiegt!`, 'success');
-          
-          // Show game results
-          this.showGameResults();
-        }
-        return;
-      }
-    }
-    
-    // Check if a banner was captured
-    for (const player of this.gameState.players) {
-      let hasStandingBanner = false;
-      for (const banner of this.gameState.banners.values()) {
-        if (banner.playerId === player.id && banner.status === 'standing') {
-          hasStandingBanner = true;
-          break;
-        }
-      }
-      
-      if (!hasStandingBanner) {
-        // Banner captured - end game
-        const winner = this.gameState.players.find(p => p.id !== player.id);
-        if (winner) {
-          // Set game as finished
-          this.gameState = {
-            ...this.gameState,
-            gameStatus: 'finished',
-            winner: winner.id,
-          };
-          
-          this.addLogEntry({
-            type: 'victory',
-            message: `🎉 ${winner.name} wins! Banner von ${player.name} erobert!`,
-          });
-
-          // Notify callbacks
-          this.onVictoryCallbacks.forEach(cb => cb(winner.name));
-
-          this.showMessage(`🎉 ${winner.name} wins! Banner erobert!`, 'success');
-          
-          // Show game results
-          this.showGameResults();
-        }
-        return;
-      }
-    }
-  }
-  
-  /**
-   * Show game results dialog
-   */
-  private showGameResults(): void {
-    const results = calculateGameResults(this.gameState);
-    if (!results) return;
-    
-    // Create results display in the renderer
-    this.renderer.showGameResults(results);
+    const player = this.gameState.players.find(item => item.id === commander.playerId);
+    const effectiveType = getEffectiveTroopType(commander);
+    const activeUnits = commander.units.filter(unit => unit?.status === 'active').length;
+    const holder = getHoldingCommander(this.gameState, commander.id);
+    panel.hidden = false;
+    panel.innerHTML = '';
+    const color = document.createElement('div');
+    color.className = 'player-color-box';
+    color.style.backgroundColor = player?.color ?? '#fff';
+    const title = document.createElement('h4');
+    title.textContent = `${commander.isKing ? 'König · ' : ''}${troopName(effectiveType)}${activeUnits === 0 ? ' (leer)' : ''}`;
+    const stats = document.createElement('p');
+    stats.textContent = `Bewegung ${TROOP_STATS[effectiveType].moveRange} · Reichweite ${effectiveType === 'archer' ? '2–3' : TROOP_STATS[effectiveType].attackRange} · Einheiten ${activeUnits}/4${holder ? ' · festgehalten' : ''}`;
+    panel.append(color, title, stats);
   }
 
-  /**
-   * Find adjacent position to target for cavalry to move to before attacking
-   */
-  private findAdjacentPosition(from: Position, to: Position): Position | undefined {
-    // Get all 8 adjacent positions around target
-    const adjacentPositions = [
-      { x: to.x - 1, y: to.y },
-      { x: to.x + 1, y: to.y },
-      { x: to.x, y: to.y - 1 },
-      { x: to.x, y: to.y + 1 },
-      { x: to.x - 1, y: to.y - 1 },
-      { x: to.x + 1, y: to.y - 1 },
-      { x: to.x - 1, y: to.y + 1 },
-      { x: to.x + 1, y: to.y + 1 },
-    ];
-
-    // Filter out positions that are occupied
-    const availablePositions = adjacentPositions.filter(pos => {
-      // Check if position is within board bounds
-      if (pos.x < 0 || pos.x >= 24 || pos.y < 0 || pos.y >= 24) {
-        return false;
-      }
-
-      // Check if position is occupied by another commander
-      for (const cmd of this.gameState.commanders.values()) {
-        if (cmd.position.x === pos.x && cmd.position.y === pos.y) {
-          return false;
-        }
-      }
-
-      // Check if position has a standing banner
-      for (const banner of this.gameState.banners.values()) {
-        if (banner.position.x === pos.x &&
-            banner.position.y === pos.y &&
-            banner.status === 'standing') {
-          return false;
-        }
-      }
-
-      return true;
+  private renderLog(): void {
+    const container = this.uiRoot?.querySelector<HTMLElement>('#combat-log-entries');
+    if (!container) return;
+    container.innerHTML = '';
+    this.getCombatLog().slice(-12).reverse().forEach(entry => {
+      const element = document.createElement('div');
+      element.className = `log-entry ${entry.type}`;
+      element.textContent = entry.message;
+      container.appendChild(element);
     });
-
-    // Find the closest available position to the attacker
-    let closestPos: Position | undefined;
-    let minDistance = Infinity;
-
-    for (const pos of availablePositions) {
-      const distance = Math.max(
-        Math.abs(from.x - pos.x),
-        Math.abs(from.y - pos.y)
-      );
-      if (distance < minDistance) {
-        minDistance = distance;
-        closestPos = pos;
-      }
-    }
-
-    return closestPos;
   }
 
-  /**
-   * Find enemy commander at position
-   */
-  private findEnemyCommanderAtPosition(position: Position): { id: CommanderId; commander: Commander } | undefined {
-    for (const [id, cmd] of this.gameState.commanders) {
-      if (cmd.position.x === position.x && cmd.position.y === position.y) {
-        const activePlayer = this.gameState.players.find(p => p.id === this.gameState.activePlayerId);
-        if (activePlayer && !activePlayer.commanders.includes(id)) {
-          return { id, commander: cmd };
-        }
-      }
-    }
-    return undefined;
+  private renderHoldingDialog(): void {
+    const host = this.uiRoot?.querySelector<HTMLElement>('#holding-dialog-host');
+    if (!host) return;
+    host.innerHTML = '';
+    const choice = this.phase === 'holding' ? getPendingHoldingChoices(this.gameState)[0] : undefined;
+    if (!choice) return;
+    const owner = this.gameState.players.find(player => player.id === choice.playerId);
+    const holder = this.gameState.commanders.get(choice.holderId);
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay holding-overlay';
+    overlay.dataset.testid = 'holding-dialog';
+    const dialog = document.createElement('section');
+    dialog.className = 'holding-dialog ui-panel';
+    const heading = document.createElement('h2');
+    heading.textContent = `${owner?.name ?? 'Spieler'}: Festhalten wählen`;
+    const explanation = document.createElement('p');
+    explanation.textContent = `Die Infanterie bei ${holder?.position.x}/${holder?.position.y} darf genau einen Kommandeur des aktiven Spielers festhalten.`;
+    const choices = document.createElement('div');
+    choices.className = 'holding-options';
+    choice.candidates.forEach(targetId => {
+      const target = this.gameState.commanders.get(targetId);
+      if (!target) return;
+      const button = document.createElement('button');
+      button.className = 'btn btn-primary';
+      button.dataset.testid = `hold-${targetId}`;
+      const count = target.units.filter(unit => unit?.status === 'active').length;
+      button.textContent = `${target.isKing ? 'König' : 'Kommandeur'} ${troopName(getEffectiveTroopType(target))} bei ${target.position.x}/${target.position.y}${count === 0 ? ' (leer)' : ''}`;
+      button.addEventListener('click', () => this.chooseHoldingTarget(choice.holderId, targetId));
+      choices.appendChild(button);
+    });
+    const waive = document.createElement('button');
+    waive.className = 'btn btn-secondary';
+    waive.dataset.testid = 'hold-waive';
+    waive.textContent = 'Nicht festhalten';
+    waive.addEventListener('click', () => this.chooseHoldingTarget(choice.holderId, null));
+    choices.appendChild(waive);
+    dialog.append(heading, explanation, choices);
+    overlay.appendChild(dialog);
+    host.appendChild(overlay);
   }
 
-  /**
-   * Find enemy banner at position
-   */
-  private findEnemyBannerAtPosition(position: Position): Banner | undefined {
-    for (const banner of this.gameState.banners.values()) {
-      if (banner.position.x === position.x &&
-          banner.position.y === position.y &&
-          banner.status === 'standing') {
-        const activePlayer = this.gameState.players.find(p => p.id === this.gameState.activePlayerId);
-        if (activePlayer && banner.playerId !== activePlayer.id) {
-          return banner;
-        }
-      }
-    }
-    return undefined;
+  private showMessage(message: string, type: 'info' | 'warning' | 'error'): void {
+    const notification = this.uiRoot?.querySelector<HTMLElement>('#game-notification');
+    if (!notification) return;
+    notification.textContent = message;
+    notification.className = `game-notification ${type}`;
+    notification.hidden = false;
+    if (this.notificationTimer !== undefined) window.clearTimeout(this.notificationTimer);
+    this.notificationTimer = window.setTimeout(() => { notification.hidden = true; }, 3500);
   }
 
-  /**
-   * Add entry to combat log
-   */
-  private addLogEntry(entry: Omit<CombatLogEntry, 'id' | 'turn' | 'timestamp'>): void {
-    const fullEntry: CombatLogEntry = {
-      ...entry,
-      id: `log_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      turn: this.gameState.turnNumber,
-      timestamp: new Date(),
+  private toLogEntry(action: Action, index: number): CombatLogEntry {
+    return {
+      id: `${action.timestamp}-${index}`,
+      turn: Number(action.details.turnNumber ?? this.gameState.turnNumber),
+      type: action.type,
+      message: actionMessage(action),
+      timestamp: new Date(action.timestamp),
     };
-
-    this.combatLog.push(fullEntry);
-
-    // Keep only last 50 entries
-    if (this.combatLog.length > 50) {
-      this.combatLog.shift();
-    }
-
-    // Notify callbacks
-    this.logCallbacks.forEach(cb => cb(fullEntry));
   }
 
-  /**
-   * Show error message
-   */
-  private showError(message: string): void {
-    console.error(`❌ ${message}`);
-    // Could integrate with UI toast system
+  private setText(selector: string, value: string): void {
+    const element = this.uiRoot?.querySelector(selector);
+    if (element) element.textContent = value;
   }
 
-  /**
-   * Show success/info message
-   */
-  private showMessage(message: string, type: 'info' | 'success' | 'warning' | 'error'): void {
-    console.log(`[${type.toUpperCase()}] ${message}`);
-    // Could integrate with UI toast system
+  private setDisabled(selector: string, disabled: boolean): void {
+    const button = this.uiRoot?.querySelector<HTMLButtonElement>(selector);
+    if (button) button.disabled = disabled;
   }
 
-  /**
-   * Render current state
-   */
-  private render(): void {
-    console.log('🎮 Controller.render() called');
-    this.uiState.selectedCommanderId = this.selectedCommanderId;
-    console.log('🎮 Calling renderer.render()...');
-    try {
-      this.renderer.render(this.gameState, this.uiState);
-      console.log('✅ Controller render complete');
-    } catch (error) {
-      console.error('❌ Error in renderer.render():', error);
-    }
+  private removeCallback<T>(callbacks: T[], callback: T): void {
+    const index = callbacks.indexOf(callback);
+    if (index >= 0) callbacks.splice(index, 1);
   }
 }
 
-/**
- * Create a game controller
- */
 export function createGameController(
   config: GameConfig,
   renderer: GameRenderer,
-  diceSize: string = 'large'
+  diceSize = 'large',
+  onExit?: () => void,
 ): GameController {
-  const gameState = createGame(config);
-  return new GameController(gameState, renderer, diceSize);
+  return new GameController(createGame(config), renderer, diceSize, onExit);
 }

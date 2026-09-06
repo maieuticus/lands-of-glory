@@ -9,6 +9,7 @@ import {
   getDefaultArmyConfig,
   PlayerConfig,
   DEFAULT_STARTING_BUDGET,
+  validateArmyConfig,
 } from '@lands-of-glory/game-core';
 import { ArmyBuilderUI, createArmyBuilderStyles, ArmyBuilderCallback } from './army-builder-ui';
 
@@ -134,9 +135,11 @@ export class ArmyBuilderScreen {
   private initArmyBuilder(): void {
     const callback: ArmyBuilderCallback = (config, isValid) => {
       this.playerArmies[this.currentPlayerIndex] = config;
+      this.budget = this.armyBuilderUI?.getBudget() ?? this.budget;
+      const allArmiesValid = isValid && this.playerArmies.every(army => validateArmyConfig(army, this.budget).valid);
       // Update ALL next buttons (top and bottom)
       this.container.querySelectorAll('.btn-next').forEach((btn) => {
-        (btn as HTMLButtonElement).disabled = !isValid;
+        (btn as HTMLButtonElement).disabled = !allArmiesValid;
       });
     };
 
@@ -148,8 +151,9 @@ export class ArmyBuilderScreen {
     );
 
     // Set initial button state for ALL buttons
+    const allArmiesValid = this.playerArmies.every(army => validateArmyConfig(army, this.budget).valid);
     this.container.querySelectorAll('.btn-next').forEach((btn) => {
-      (btn as HTMLButtonElement).disabled = !this.armyBuilderUI!.isValid();
+      (btn as HTMLButtonElement).disabled = !this.armyBuilderUI!.isValid() || !allArmiesValid;
     });
   }
 
@@ -200,6 +204,13 @@ export class ArmyBuilderScreen {
       this.render();
     } else {
       // All players configured, start game
+      const invalid = this.playerArmies.flatMap((army, index) =>
+        validateArmyConfig(army, this.budget).errors.map(error => `Spieler ${index + 1}: ${error}`));
+      if (invalid.length > 0) {
+        window.alert(`Spielstart nicht möglich: ${invalid.join(' · ')}`);
+        this.render();
+        return;
+      }
       this.onComplete(this.playerArmies, this.budget);
     }
   }

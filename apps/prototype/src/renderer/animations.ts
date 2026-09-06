@@ -305,7 +305,7 @@ export class AnimationManager {
     ring.y = y;
     this.animationLayer.addChild(ring);
     
-    let startTime = Date.now();
+    const startTime = Date.now();
     
     const pulse = () => {
       const elapsed = Date.now() - startTime;
@@ -359,7 +359,7 @@ export class AnimationManager {
    * Stop all animations
    */
   stopAllAnimations(): void {
-    for (const [id, animation] of this.animations) {
+    for (const [, animation] of this.animations) {
       if (animation.onComplete) {
         animation.onComplete();
       }
@@ -375,7 +375,7 @@ export class AnimationManager {
     
     for (const [id, animation] of this.animations) {
       const elapsed = now - animation.startTime;
-      let progress = Math.min(elapsed / animation.duration, 1);
+      const progress = Math.min(elapsed / animation.duration, 1);
       
       // Apply easing
       const easedProgress = animation.easing(progress);

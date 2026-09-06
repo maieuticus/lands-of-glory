@@ -6,21 +6,15 @@
  */
 
 import {
-  createGame,
-  startGame,
   resolveCombat,
   applyCombatResult,
   canAttack,
   createRNG,
   CommanderId,
   GameConfig,
-  CombatResult,
-  createUnitId,
-  createCommanderId,
-  createPlayerId,
-  createBannerId,
-  createGameId,
 } from '../src';
+
+import { createCombatGame } from './fixtures';
 
 describe('Combat Resolution', () => {
   const defaultConfig: GameConfig = {
@@ -32,7 +26,7 @@ describe('Combat Resolution', () => {
 
   describe('Testfall 2: Unit erzeugt Würfel', () => {
     it('should roll 4 dice for commander with 4 active units', () => {
-      const game = createGame(defaultConfig);
+      const game = createCombatGame(defaultConfig);
       const rng = createRNG(42);
 
       // Get first commanders from each player
@@ -58,7 +52,7 @@ describe('Combat Resolution', () => {
 
   describe('Testfall 3: Leerer Commander kämpft als Kavallerie', () => {
     it('should fight with 1 die as cavalry when commander has no active units', () => {
-      let game = createGame(defaultConfig);
+      let game = createCombatGame(defaultConfig);
       const rng = createRNG(42);
 
       const player1 = game.players[0];
@@ -85,7 +79,7 @@ describe('Combat Resolution', () => {
 
   describe('Testfall 4: Leerer König erhält König-Bonus', () => {
     it('should give king bonus to empty king fighting as cavalry', () => {
-      let game = createGame(defaultConfig);
+      let game = createCombatGame(defaultConfig);
       const rng = createRNG(42);
 
       const player1 = game.players[0];
@@ -124,7 +118,7 @@ describe('Combat Resolution', () => {
     it('should sort by natural value before adding bonuses', () => {
       // This is tested implicitly by checking that effectiveValue = natural + bonus
       // and that the highest natural values are paired first
-      const game = createGame(defaultConfig);
+      const game = createCombatGame(defaultConfig);
       const rng = createRNG(42);
 
       const player1 = game.players[0];
@@ -159,7 +153,7 @@ describe('Combat Resolution', () => {
 
   describe('Testfall 7: Paarweiser Vergleich', () => {
     it('should create pairs up to the minimum dice count', () => {
-      let game = createGame(defaultConfig);
+      let game = createCombatGame(defaultConfig);
       const rng = createRNG(42);
 
       const player1 = game.players[0];
@@ -186,7 +180,7 @@ describe('Combat Resolution', () => {
 
   describe('Testfall 8: Überzähliger Würfel verursacht keinen Verlust', () => {
     it('should not cause additional losses from excess dice', () => {
-      let game = createGame(defaultConfig);
+      const game = createCombatGame(defaultConfig);
       const rng = createRNG(42);
 
       const player1 = game.players[0];
@@ -206,7 +200,7 @@ describe('Combat Resolution', () => {
 
   describe('Testfall 9: Automatische Verlustzuordnung', () => {
     it('should automatically assign casualties based on lost pairs', () => {
-      const game = createGame(defaultConfig);
+      const game = createCombatGame(defaultConfig);
       const rng = createRNG(42);
 
       const player1 = game.players[0];
@@ -227,7 +221,7 @@ describe('Combat Resolution', () => {
 
   describe('Testfall 12: Commander stirbt nicht mit aktiven Units', () => {
     it('should not defeat commander while they have active units', () => {
-      const game = createGame(defaultConfig);
+      const game = createCombatGame(defaultConfig);
       const rng = createRNG(42);
 
       const player1 = game.players[0];
@@ -245,7 +239,7 @@ describe('Combat Resolution', () => {
 
   describe('Testfall 14: Leerer König verliert', () => {
     it('should mark king as defeated when empty king loses', () => {
-      let game = createGame(defaultConfig);
+      let game = createCombatGame(defaultConfig);
       const rng = createRNG(1); // Fixed seed for reproducibility
 
       const player1 = game.players[0];
@@ -282,7 +276,7 @@ describe('Combat Resolution', () => {
 
   describe('Testfall 17: König-Bonus bei König gegen König', () => {
     it('should apply king bonus to both sides in king vs king combat', () => {
-      let game = createGame(defaultConfig);
+      const game = createCombatGame(defaultConfig);
       const rng = createRNG(42);
 
       const player1 = game.players[0];
@@ -322,7 +316,7 @@ describe('Combat Resolution', () => {
 
   describe('Testfall 18: Alle Units nehmen teil', () => {
     it('should have all active units participate in combat', () => {
-      const game = createGame(defaultConfig);
+      const game = createCombatGame(defaultConfig);
       const rng = createRNG(42);
 
       const player1 = game.players[0];
@@ -351,7 +345,7 @@ describe('Combat Validation', () => {
 
   describe('canAttack', () => {
     it('should reject attack if commander has already acted', () => {
-      let game = createGame(defaultConfig);
+      let game = createCombatGame(defaultConfig);
 
       const player1 = game.players[0];
       const player2 = game.players[1];
@@ -371,7 +365,7 @@ describe('Combat Validation', () => {
     });
 
     it('should reject attack if target is out of range', () => {
-      let game = createGame(defaultConfig);
+      let game = createCombatGame(defaultConfig);
 
       const player1 = game.players[0];
       const player2 = game.players[1];
@@ -391,7 +385,7 @@ describe('Combat Validation', () => {
     });
 
     it('should allow attack if all conditions are met', () => {
-      let game = createGame(defaultConfig);
+      let game = createCombatGame(defaultConfig);
 
       const player1 = game.players[0];
       const player2 = game.players[1];
@@ -414,7 +408,7 @@ describe('Combat Validation', () => {
     });
 
     it('should allow empty commander to attack (fights as cavalry)', () => {
-      let game = createGame(defaultConfig);
+      let game = createCombatGame(defaultConfig);
 
       const player1 = game.players[0];
       const player2 = game.players[1];
@@ -451,7 +445,7 @@ describe('Combat Application', () => {
   };
 
   it('should apply casualties to game state', () => {
-    let game = createGame(defaultConfig);
+    let game = createCombatGame(defaultConfig);
     const rng = createRNG(42);
 
     const player1 = game.players[0];

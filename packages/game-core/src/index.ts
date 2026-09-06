@@ -42,6 +42,7 @@ export {
   BOARD_WIDTH,
   BOARD_HEIGHT,
   COMMANDER_SLOTS,
+  MAX_ARMY_COMMANDERS,
   MIN_PLAYERS,
   MAX_PLAYERS,
   COMMANDER_MAX_HEALTH,
@@ -140,3 +141,13 @@ export {
 } from './army-builder';
 
 export const GAME_CORE_VERSION = '1.0.0';
+export { canMove, getValidMoves, getValidAttacks, canCaptureBanner } from './rules';
+export { moveCommander, captureBanner, applyCommand } from './actions';
+export type { CaptureCommand, HoldCommand } from './actions';
+export { attackCommander } from './combat';
+export { getHoldingCommander, getPendingHoldingChoices, setHoldingTarget } from './holding';
+export type { HoldingChoice } from './holding';
+export type { HoldingDecision } from './types';
+export type { RNGState } from './rng';
+export { getEffectiveTroopType, getCommanderAtPosition, synchronizeState } from './state';
+export { checkAndApplyVictoryConditions, getStartArea, START_AREA_CAPACITY } from './game';

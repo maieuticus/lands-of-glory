@@ -284,7 +284,7 @@ describe('Army Builder', () => {
       expect(activeUnits).toHaveLength(4); // 3 paid + 1 free
       
       // The free unit should have strength equal to the weakest (1)
-      const weakestUnit = activeUnits.find(u => u!.bonusPoints === 1);
+      const weakestUnit = activeUnits.find(u => u.bonusPoints === 1);
       expect(weakestUnit).toBeDefined();
     });
 

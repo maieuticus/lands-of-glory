@@ -119,18 +119,18 @@ export interface Banner {
  * Commander (squad leader) on the board
  *
  * Represents a player's primary unit with 0-4 soldiers (units) in slots.
- * Each player has 6 commanders: exactly 1 King and 5 others.
+ * Default armies have 6 commanders; custom armies have 1-72, exactly one King.
  *
- * When a commander dies (health ≤ 0), all units in its squad are also removed.
- * If isKing=true and health ≤ 0, that player loses immediately.
+ * A commander is defeated when its own empty-commander die loses.
+ * The health field is retained for compatibility, not a damage system.
  * 
  * Per Spec 004: hasActedThisTurn tracks if commander has acted this turn.
  */
 export interface Commander {
   readonly id: CommanderId;
-  readonly type: TroopType;  // Used for base stats when commander is empty
+  readonly type: TroopType;  // Base troop type; empty commanders use effective cavalry
   readonly position: Position;
-  readonly health: number;  // 1-20, commander dies when ≤ 0
+  readonly health: number;  // Legacy liveness field; combat removes defeated commanders
   readonly playerId: PlayerId;
   readonly units: (Unit | null)[];  // Exactly 4 slots, each null or Unit
   readonly isKing: boolean;  // True if this is the player's King
@@ -184,7 +184,7 @@ export interface PlayerConfig {
  */
 export interface ArmyBuilderConfig {
   readonly enabled: boolean;
-  readonly startingBudget: number;  // Default: 20 gold
+  readonly startingBudget: number;  // Default: 50 gold
 }
 
 /**
@@ -193,11 +193,13 @@ export interface ArmyBuilderConfig {
  * Represents a player in the game with their commanders and units.
  */
 export interface Player {
+  readonly status?: 'active' | 'defeated';
+  readonly defeatReason?: 'king_defeated' | 'banner_captured';
   readonly id: PlayerId;
   readonly name: string;
   readonly color: string;
-  readonly commanders: readonly CommanderId[];  // 3-4 commanders per player
-  readonly score: number;  // Cumulative score (kills, objectives)
+  readonly commanders: readonly CommanderId[];  // IDs of remaining commanders
+  readonly score: number;  // Legacy display field; final points are derived by scoring.ts
   readonly isActive: boolean;  // True if current turn
 }
 
@@ -205,10 +207,10 @@ export interface Player {
  * Action recorded in game log for deterministic replay
  *
  * Actions form an immutable log of all game state changes.
- * This enables deterministic replay with different RNG seeds.
+ * Identical initial state and recorded dice allow deterministic scenario replay.
  */
 export interface Action {
-  readonly type: 'move' | 'attack' | 'endTurn' | 'gameStart' | 'gameEnd';
+  readonly type: 'move' | 'attack' | 'capture' | 'hold' | 'playerDefeated' | 'endTurn' | 'gameStart' | 'gameEnd';
   readonly playerId: PlayerId;
   readonly commanderId?: CommanderId;
   readonly timestamp: number;
@@ -234,6 +236,9 @@ export interface Action {
  * - log: Immutable action log for replay
  */
 export interface GameState {
+  readonly finishReason?: 'king_defeated' | 'banner_captured' | 'stalemate';
+  readonly rngState?: import('./rng').RNGState;
+  readonly holdingDecisions?: readonly HoldingDecision[];
   readonly id: GameId;
   readonly board: Board;
   readonly players: readonly Player[];
@@ -245,6 +250,13 @@ export interface GameState {
   readonly gameStatus: GameStatus;
   readonly winner?: PlayerId;
   readonly log: readonly Action[];
+}
+
+/** A passive response by an infantry owner during another player's turn. */
+export interface HoldingDecision {
+  readonly holderId: CommanderId;
+  readonly targetId: CommanderId | null;
+  readonly candidates: readonly CommanderId[];
 }
 
 // ============================================================================
@@ -266,21 +278,15 @@ export interface MoveResult {
 /**
  * Result of attack validation
  *
- * Indicates whether an attack is valid and provides casualty information.
+ * Uses the same validation contract as canAttack.
  */
-export interface AttackResult {
-  readonly valid: boolean;
-  readonly reason?: string;
-  readonly casualties?: ReadonlyArray<{
-    readonly unitId: UnitId;
-    readonly damage: number;
-  }>;
-}
+export type AttackResult = import('./rules').AttackValidation;
 
 /**
  * Configuration for game initialization
  */
 export interface GameConfig {
+  readonly seed?: number;
   readonly players: readonly PlayerConfig[];
   readonly boardSeed?: number;  // Optional: for reproducible board generation
   readonly debugMode?: boolean;
@@ -304,6 +310,7 @@ export interface RendererOptions {
 export const BOARD_WIDTH = 24;
 export const BOARD_HEIGHT = 24;
 export const COMMANDER_SLOTS = 4;
+export const MAX_ARMY_COMMANDERS = 72;
 export const MIN_PLAYERS = 2;
 export const MAX_PLAYERS = 4;
 export const COMMANDER_MAX_HEALTH = 20;
@@ -319,7 +326,7 @@ export const COMMANDER_MAX_HEALTH = 20;
  * Attack ranges:
  * - infantry: 1 tile (melee)
  * - cavalry: 2 tiles (melee with reach)
- * - archer: 2 tiles (ranged)
+ * - archer: 2-3 tiles (ranged; cannot attack adjacent targets)
  */
 export const TROOP_STATS = {
   infantry: {
@@ -332,7 +339,7 @@ export const TROOP_STATS = {
   },
   archer: {
     moveRange: 1,
-    attackRange: 2,
+    attackRange: 3,
   },
 } as const;
 

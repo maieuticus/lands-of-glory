@@ -176,7 +176,7 @@ export class DiceRenderer {
     bonusPoints: number,
     kingBonus: number,
     isAttacker: boolean,
-    isWinner: boolean = false
+    _isWinner: boolean = false
   ): PIXI.Container {
     const container = new PIXI.Container();
     
@@ -214,7 +214,6 @@ export class DiceRenderer {
    */
   private getDotPositions(value: number, size: number): Array<{ x: number; y: number }> {
     const offset = size * 0.28;
-    const smallOffset = size * 0.15;
 
     switch (value) {
       case 1:

@@ -9,18 +9,16 @@ import {
   ArmyConfig,
   CommanderBuildConfig,
   UnitBuildConfig,
-  ArmyCostBreakdown,
   ArmyValidationResult,
   calculateArmyCost,
   validateArmyConfig,
   getDefaultArmyConfig,
   createEmptyCommanderConfig,
   addUnitToCommanderConfig,
-  removeUnitFromCommanderConfig,
-  setUnitBonusPoints,
   TroopType,
   DEFAULT_STARTING_BUDGET,
   ARMY_BUILDER_COSTS,
+  MAX_ARMY_COMMANDERS,
 } from '@lands-of-glory/game-core';
 
 /**
@@ -142,7 +140,7 @@ export class ArmyBuilderUI {
         </div>
 
         <div class="army-builder-actions">
-          <button class="btn-add-captain" ${remainingBudget < ARMY_BUILDER_COSTS.captain ? 'disabled' : ''}>
+          <button class="btn-add-captain" ${remainingBudget < ARMY_BUILDER_COSTS.captain || this.currentConfig.commanders.length >= MAX_ARMY_COMMANDERS ? 'disabled' : ''}>
             + Hauptmann (1 Gold)
           </button>
           <button class="btn-reset">Zurücksetzen</button>

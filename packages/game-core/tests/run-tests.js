@@ -86,16 +86,11 @@ function expect(value) {
   };
 }
 
-// Mock game-core types and functions
-const TROOP_STATS = {
-  infantry: { moveRange: 1, attackRange: 1 },
-  cavalry: { moveRange: 2, attackRange: 2 },
-  archer: { moveRange: 1, attackRange: 2 },
-};
+const typesSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'types.ts'), 'utf8');
 
 // Basic tests that don't require full module
 console.log(`${colors.yellow}Running basic structure tests...${colors.reset}`);
-console.log(`${colors.yellow}Note: Full tests require 'npm install' to work properly${colors.reset}`);
+console.log(`${colors.yellow}These are source-structure checks; run npm test for game-rule tests.${colors.reset}`);
 
 describe('Structure Tests', () => {
   it('should have test files', () => {
@@ -115,20 +110,9 @@ describe('Structure Tests', () => {
   });
 });
 
-describe('TROOP_STATS', () => {
-  it('should have correct infantry stats', () => {
-    expect(TROOP_STATS.infantry.moveRange).toBe(1);
-    expect(TROOP_STATS.infantry.attackRange).toBe(1);
-  });
-
-  it('should have correct cavalry stats', () => {
-    expect(TROOP_STATS.cavalry.moveRange).toBe(2);
-    expect(TROOP_STATS.cavalry.attackRange).toBe(2);
-  });
-
-  it('should have correct archer stats', () => {
-    expect(TROOP_STATS.archer.moveRange).toBe(1);
-    expect(TROOP_STATS.archer.attackRange).toBe(2);
+describe('Source declarations', () => {
+  it('should declare troop statistics in types.ts', () => {
+    expect(typesSource.includes('TROOP_STATS')).toBeTruthy();
   });
 });
 
@@ -170,6 +154,6 @@ if (failures.length > 0) {
   process.exit(1);
 } else {
   console.log(`\n${colors.green}All structure tests passed!${colors.reset}`);
-  console.log(`${colors.yellow}Note: Run 'npm install' then 'npm test' for full tests${colors.reset}`);
+  console.log(`${colors.yellow}Run 'npm test' for executable game-rule tests.${colors.reset}`);
   process.exit(0);
 }

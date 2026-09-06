@@ -4,6 +4,8 @@ Diese Anleitung beschreibt Schritt für Schritt, wie du die Entwicklungsumgebung
 
 ## Voraussetzungen
 
+Unterstützt werden Node.js 20 LTS oder neuer sowie npm 10 oder neuer. Die versionierte `package-lock.json` ermöglicht eine reproduzierbare Installation mit `npm ci`.
+
 ### 1. Node.js und npm installieren
 
 Das Projekt benötigt Node.js (Version 18 oder höher empfohlen).
@@ -84,6 +86,12 @@ npm install
 npm i
 ```
 
+Für eine saubere, reproduzierbare Installation (etwa in CI) verwende:
+
+```bash
+npm ci
+```
+
 **Was passiert hier:**
 - Installiert alle Pakete für Root-Projekt
 - Installiert Abhängigkeiten für `packages/game-core`
@@ -95,6 +103,18 @@ npm i
 # TypeScript kompilieren und Build erstellen
 npm run build
 ```
+
+### 4. Qualität prüfen
+
+```bash
+npm run type-check
+npm run lint
+npm test
+npm run test:structure
+npm run test:coverage
+```
+
+`test:structure` prüft nur Dateistruktur und Deklarationen. Ausführbare Spielregeln werden mit `npm test` geprüft. `test:coverage` prüft die bestehenden 80-%-Schwellen.
 
 **Ausgabe sollte ähnlich sein:**
 ```

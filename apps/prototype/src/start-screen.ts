@@ -4,7 +4,7 @@
  * Start screen with menu for Lands of Glory
  */
 
-import { applyUIScale, scale, UISize } from './ui-scale';
+import { applyUIScale, UISize } from './ui-scale';
 
 export type DiceSize = UISize;
 
@@ -50,7 +50,7 @@ export class StartScreen {
   private loadOptions(): GameOptions {
     const defaults: GameOptions = {
       useTextures: true,
-      enableSound: true,
+      enableSound: false,
       showGrid: true,
       diceSize: 'large',
       playerCount: 2,
@@ -59,9 +59,19 @@ export class StartScreen {
     try {
       const saved = localStorage.getItem('lands-of-glory-options');
       if (saved) {
-        const parsed = JSON.parse(saved);
-        // Merge with defaults to ensure all fields exist
-        return { ...defaults, ...parsed };
+        const parsed: unknown = JSON.parse(saved);
+        if (typeof parsed === 'object' && parsed !== null) {
+          const candidate = parsed as Partial<GameOptions>;
+          return {
+            useTextures: typeof candidate.useTextures === 'boolean' ? candidate.useTextures : defaults.useTextures,
+            enableSound: false,
+            showGrid: typeof candidate.showGrid === 'boolean' ? candidate.showGrid : defaults.showGrid,
+            diceSize: candidate.diceSize === 'small' || candidate.diceSize === 'medium' || candidate.diceSize === 'large'
+              ? candidate.diceSize : defaults.diceSize,
+            playerCount: candidate.playerCount === 2 || candidate.playerCount === 3 || candidate.playerCount === 4
+              ? candidate.playerCount : defaults.playerCount,
+          };
+        }
       }
     } catch (e) {
       console.warn('Failed to load options:', e);
@@ -105,19 +115,19 @@ export class StartScreen {
           <p class="game-subtitle">Taktisches Strategiespiel</p>
           
           <div class="menu-container">
-            <button class="menu-btn btn-army-builder" data-action="army-builder">
+            <button class="menu-btn btn-army-builder" data-action="army-builder" data-testid="army-builder">
               <span class="btn-icon">⚔️</span>
               <span class="btn-text">Einheiten zusammenstellen</span>
               <span class="btn-desc">Erstelle deine eigene Armee</span>
             </button>
             
-            <button class="menu-btn btn-quick-start" data-action="quick-start">
+            <button class="menu-btn btn-quick-start" data-action="quick-start" data-testid="quick-start">
               <span class="btn-icon">⚡</span>
               <span class="btn-text">Schnellstart</span>
               <span class="btn-desc">Starte sofort mit Standard-Armeen</span>
             </button>
             
-            <button class="menu-btn btn-options" data-action="options">
+            <button class="menu-btn btn-options" data-action="options" data-testid="options">
               <span class="btn-icon">⚙️</span>
               <span class="btn-text">Optionen</span>
               <span class="btn-desc">Spieleinstellungen anpassen</span>
@@ -283,13 +293,12 @@ export class StartScreen {
 
   private saveOptionsFromForm(): void {
     const texturesCheckbox = this.container.querySelector('#opt-textures') as HTMLInputElement;
-    const soundCheckbox = this.container.querySelector('#opt-sound') as HTMLInputElement;
     const gridCheckbox = this.container.querySelector('#opt-grid') as HTMLInputElement;
     const playerCountSelect = this.container.querySelector('#opt-players') as HTMLSelectElement;
 
     this.options = {
       useTextures: texturesCheckbox?.checked ?? true,
-      enableSound: soundCheckbox?.checked ?? true,
+      enableSound: false,
       showGrid: gridCheckbox?.checked ?? true,
       diceSize: this.options.diceSize,
       playerCount: parseInt(playerCountSelect?.value ?? '2') as PlayerCount,
@@ -305,6 +314,12 @@ export class StartScreen {
     const style = document.createElement('style');
     style.id = styleId;
     style.textContent = `
+      #opt-sound,
+      label[for="opt-sound"],
+      label[for="opt-sound"] + .option-desc {
+        display: none;
+      }
+
       .start-screen {
         position: fixed;
         top: 0;

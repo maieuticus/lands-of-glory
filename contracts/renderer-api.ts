@@ -1,4 +1,6 @@
 /**
+ * HISTORICAL DESIGN DRAFT, not an implemented or type-checked API.
+ * Block 3 will align this with the actual prototype renderer.
  * contracts/renderer-api.ts
  *
  * This is the interface contract between game-core (pure logic) and the PixiJS

@@ -18,6 +18,11 @@
  * when seeded with the same value. Essential for replay capability and
  * future server-side validation.
  */
+export interface RNGState {
+  readonly values: readonly number[];
+  readonly index: number;
+}
+
 export class SeededRNG {
   private N = 624;
   private M = 397;
@@ -29,7 +34,23 @@ export class SeededRNG {
   private mti: number = this.N + 1;
 
   constructor(seed: number) {
+    if (!Number.isSafeInteger(seed)) throw new RangeError('Seed must be a safe integer');
     this.initGenRand(seed);
+  }
+
+  public getState(): RNGState {
+    return { values: this.mt.map(value => value >>> 0), index: this.mti };
+  }
+
+  public static fromState(state: RNGState): SeededRNG {
+    if (state.values.length !== 624 || !Number.isInteger(state.index) || state.index < 0 || state.index > 624 ||
+        state.values.some(value => !Number.isInteger(value) || value < 0 || value > 0xffffffff)) {
+      throw new RangeError('Invalid RNG state');
+    }
+    const rng = new SeededRNG(0);
+    rng.mt = [...state.values];
+    rng.mti = state.index;
+    return rng;
   }
 
   private initGenRand(s: number): void {
@@ -85,7 +106,7 @@ export class SeededRNG {
    * @returns Random integer [0, max)
    */
   public nextInt(max: number): number {
-    if (max <= 0) {
+    if (!Number.isSafeInteger(max) || max <= 0 || max > 0x100000000) {
       throw new Error('Max must be positive');
     }
     return this.genrandInt32() % max;
@@ -116,6 +137,7 @@ export class SeededRNG {
    * @returns Array of roll results [1-6 for each]
    */
   public rollDice(count: number): number[] {
+    if (!Number.isSafeInteger(count) || count < 0) throw new RangeError('Invalid dice count');
     const results: number[] = [];
     for (let i = 0; i < count; i++) {
       results.push(this.d6());

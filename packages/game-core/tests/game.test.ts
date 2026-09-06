@@ -10,7 +10,6 @@ import {
   startGame,
   endTurn,
   getCurrentPlayer,
-  getWinner,
   CommanderId,
   GameConfig,
   TroopType,
@@ -159,7 +158,7 @@ describe('Game Initialization', () => {
             expect(commander!.type).toBe('infantry');
             const activeUnits = commander!.units.filter((u) => u !== null);
             expect(activeUnits).toHaveLength(4);
-            const bonusValues = activeUnits.map((u) => u!.bonusPoints).sort();
+            const bonusValues = activeUnits.map((u) => u.bonusPoints).sort();
             expect(bonusValues).toEqual([0, 0, 0, 0]);
           }
         }
@@ -177,7 +176,7 @@ describe('Game Initialization', () => {
           if (!commander!.isKing) {
             const activeUnits = commander!.units.filter((u) => u !== null);
             expect(activeUnits).toHaveLength(4);
-            const bonusValues = activeUnits.map((u) => u!.bonusPoints).sort((a, b) => a - b);
+            const bonusValues = activeUnits.map((u) => u.bonusPoints).sort((a, b) => a - b);
             expect(bonusValues).toEqual([0, 0, 1, 3]);
           }
         }

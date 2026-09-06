@@ -13,16 +13,20 @@
 import {
   GameState,
   Position,
-  Banner,
   TROOP_STATS,
   BOARD_WIDTH,
   BOARD_HEIGHT,
   CommanderId,
   GameResults,
   PlayerScore,
+  canCaptureBanner,
+  getEffectiveTroopType,
+  getHoldingCommander,
+  getValidAttacks,
+  getValidMoves,
 } from '@lands-of-glory/game-core';
 import * as PIXI from 'pixi.js';
-import { AnimationManager, AnimationConfig } from './animations';
+import { AnimationManager } from './animations';
 
 /**
  * UI state that is NOT persisted as part of GameState
@@ -109,6 +113,11 @@ const COLORS = {
 
 const PLAYER_COLORS = [COLORS.PLAYER_1, COLORS.PLAYER_2, COLORS.PLAYER_3, COLORS.PLAYER_4];
 
+function parsePlayerColor(color: string, fallback: number): number {
+  const value = color.trim().replace(/^#/, '');
+  return /^[0-9a-f]{6}$/i.test(value) ? Number.parseInt(value, 16) : fallback;
+}
+
 /**
  * Main game renderer
  */
@@ -145,6 +154,8 @@ export class GameRenderer {
 
   private rendererOptions: { useTextures: boolean; showGrid: boolean };
   private resizeHandler: (() => void) | null = null;
+  private inputCleanup: Array<() => void> = [];
+  private isDisposed = false;
 
   constructor(
     containerId: string,
@@ -203,11 +214,11 @@ export class GameRenderer {
     canvas.style.position = 'fixed';
     canvas.style.top = '0';
     canvas.style.left = '0';
-    canvas.style.zIndex = '9999';
+    canvas.style.zIndex = '0';
     canvas.style.backgroundColor = '#7cb342';
     canvas.style.opacity = '1';
     canvas.style.visibility = 'visible';
-    canvas.style.border = '5px solid red';
+    canvas.style.border = '0';
     
     console.log('✅ Canvas created:', canvas.width, 'x', canvas.height);
     console.log('✅ Canvas in DOM:', document.contains(canvas));
@@ -250,10 +261,7 @@ export class GameRenderer {
    * Destroy the renderer and cleanup resources
    */
   destroy(): void {
-    if (this.resizeHandler) {
-      window.removeEventListener('resize', this.resizeHandler);
-      this.resizeHandler = null;
-    }
+    this.dispose();
   }
 
   /**
@@ -289,8 +297,13 @@ export class GameRenderer {
         const deltaX = (e.clientX - this.lastPanX) / (this.tileSize * this.camera.zoom);
         const deltaY = (e.clientY - this.lastPanY) / (this.tileSize * this.camera.zoom);
         
-        this.camera.position.x -= deltaX;
-        this.camera.position.y -= deltaY;
+      this.camera = {
+        ...this.camera,
+        position: {
+          x: this.camera.position.x - deltaX,
+          y: this.camera.position.y - deltaY,
+        },
+      };
         
         this.lastPanX = e.clientX;
         this.lastPanY = e.clientY;
@@ -315,37 +328,53 @@ export class GameRenderer {
     canvas.addEventListener('mouseup', onMouseUp, true);
     
     // Prevent context menu on canvas
-    canvas.addEventListener('contextmenu', (e: Event) => {
+    const onContextMenu = (e: Event) => {
       e.preventDefault();
       e.stopPropagation();
-    }, true);
+    };
+    canvas.addEventListener('contextmenu', onContextMenu, true);
 
     // PIXI events for commander interaction (left click)
     this.app.stage.eventMode = 'static';
     this.app.stage.hitArea = this.app.screen;
     
-    this.app.stage.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
+    const onPointerDown = (e: PIXI.FederatedPointerEvent) => {
       if (this.isPanning) return;
       const worldPos = this.screenToWorld({ x: e.global.x, y: e.global.y });
       this.handlePointerDown(worldPos, { x: e.global.x, y: e.global.y });
-    });
+    };
+    this.app.stage.on('pointerdown', onPointerDown);
 
-    this.app.stage.on('pointermove', (e: PIXI.FederatedPointerEvent) => {
+    const onPointerMove = (e: PIXI.FederatedPointerEvent) => {
       if (this.isPanning) return;
       const worldPos = this.screenToWorld({ x: e.global.x, y: e.global.y });
       this.handlePointerMove(worldPos, { x: e.global.x, y: e.global.y });
-    });
+    };
+    this.app.stage.on('pointermove', onPointerMove);
 
-    this.app.stage.on('pointerup', (e: PIXI.FederatedPointerEvent) => {
+    const onPointerUp = (e: PIXI.FederatedPointerEvent) => {
       if (this.isPanning) return;
       const worldPos = this.screenToWorld({ x: e.global.x, y: e.global.y });
       this.handlePointerUp(worldPos);
-    });
+    };
+    this.app.stage.on('pointerup', onPointerUp);
 
-    this.app.stage.on('pointerupoutside', () => {
+    const onPointerUpOutside = () => {
       if (this.isPanning) return;
       this.cancelDrag();
-    });
+    };
+    this.app.stage.on('pointerupoutside', onPointerUpOutside);
+
+    this.inputCleanup.push(
+      () => canvas.removeEventListener('mousedown', onMouseDown, true),
+      () => canvas.removeEventListener('mousemove', onMouseMove, true),
+      () => canvas.removeEventListener('mouseup', onMouseUp, true),
+      () => canvas.removeEventListener('contextmenu', onContextMenu, true),
+      () => this.app.stage.off('pointerdown', onPointerDown),
+      () => this.app.stage.off('pointermove', onPointerMove),
+      () => this.app.stage.off('pointerup', onPointerUp),
+      () => this.app.stage.off('pointerupoutside', onPointerUpOutside),
+    );
   }
 
   /**
@@ -452,7 +481,7 @@ export class GameRenderer {
 
     // Hintergrundfarbe basierend auf Spieler
     const playerIndex = this.currentState.players.findIndex(p => p.id === commander.playerId);
-    const playerColor = PLAYER_COLORS[playerIndex] || COLORS.PLAYER_1;
+    const playerColor = parsePlayerColor(this.currentState.players[playerIndex]?.color ?? '', PLAYER_COLORS[playerIndex] || COLORS.PLAYER_1);
 
     // Einheitenfarben
     const troopColors: Record<string, number> = {
@@ -644,12 +673,10 @@ export class GameRenderer {
     if (!commander) return;
 
     // Empty commanders move like cavalry (2 tiles)
-    const hasActiveUnits = commander.units.some(
-      (u) => u !== null && u.status === 'active'
-    );
-    const range = hasActiveUnits ? TROOP_STATS[commander.type].moveRange : 2;
+    const range = TROOP_STATS[getEffectiveTroopType(commander)].moveRange;
     const rangeOverlay = new PIXI.Graphics();
-    const validTiles = new Set<string>();
+    const validTiles = new Set(getValidMoves(this.currentState, commanderId)
+      .map(position => `${position.x},${position.y}`));
     const borderWidth = 0.5 * this.camera.zoom; // Dünnere Randbreite (1/4)
 
     // Draw the maximum movement range area
@@ -687,9 +714,7 @@ export class GameRenderer {
         const screenPos = this.worldToScreen({ x: targetX, y: targetY });
         const size = this.tileSize * this.camera.zoom;
 
-        if (!isOccupied) {
-          // Valid move - add to valid tiles
-          validTiles.add(`${targetX},${targetY}`);
+        if (!isOccupied && validTiles.has(`${targetX},${targetY}`)) {
 
           // Draw semi-transparent green highlight
           rangeOverlay.beginFill(COLORS.VALID_MOVE, 0.4);
@@ -706,6 +731,21 @@ export class GameRenderer {
           rangeOverlay.endFill();
         }
       }
+    }
+
+    const attackTargets = getValidAttacks(this.currentState, commanderId)
+      .map(id => this.currentState!.commanders.get(id)?.position)
+      .filter((position): position is Position => position !== undefined);
+    const bannerTargets = [...this.currentState.banners.values()]
+      .filter(banner => canCaptureBanner(this.currentState!, commanderId, banner.id).valid)
+      .map(banner => banner.position);
+    for (const target of [...attackTargets, ...bannerTargets]) {
+      const screen = this.worldToScreen(target);
+      const size = this.tileSize * this.camera.zoom;
+      rangeOverlay.beginFill(COLORS.INVALID_MOVE, 0.35);
+      rangeOverlay.lineStyle(1 * this.camera.zoom, COLORS.INVALID_MOVE, 0.95);
+      rangeOverlay.drawRect(screen.x + 2, screen.y + 2, size - 4, size - 4);
+      rangeOverlay.endFill();
     }
 
     this.dragLayer.addChildAt(rangeOverlay, 0); // Add at bottom so it appears behind drag sprite
@@ -825,7 +865,9 @@ export class GameRenderer {
     if (!commander || commander.hasActedThisTurn) return;
 
     const graphics = new PIXI.Graphics();
-    const range = TROOP_STATS[commander.type].moveRange;
+    const range = TROOP_STATS[getEffectiveTroopType(commander)].moveRange;
+    const validTiles = new Set(getValidMoves(state, commander.id)
+      .map(position => `${position.x},${position.y}`));
     const borderWidth = 0.5 * this.camera.zoom; // Dünnere Randbreite (1/4)
 
     // Draw movement range indicator
@@ -860,7 +902,7 @@ export class GameRenderer {
           }
         }
 
-        if (!isOccupied) {
+        if (!isOccupied && validTiles.has(`${targetX},${targetY}`)) {
           // Valid move - green highlight
           graphics.beginFill(COLORS.VALID_MOVE, 0.4);
           graphics.drawRect(screenPos.x + 1, screenPos.y + 1, size - 2, size - 2);
@@ -890,7 +932,7 @@ export class GameRenderer {
       if (!commander) continue;
 
       // Check if held by enemy infantry
-      const isHeld = this.isCommanderHeld(state, commanderId);
+      const isHeld = getHoldingCommander(state, commanderId) !== undefined;
       if (isHeld) {
         const screenPos = this.worldToScreen(commander.position);
         const size = this.tileSize * this.camera.zoom;
@@ -908,35 +950,6 @@ export class GameRenderer {
     }
 
     this.uiLayer.addChild(graphics);
-  }
-
-  /**
-   * Check if commander is held by enemy infantry
-   */
-  private isCommanderHeld(state: GameState, commanderId: CommanderId): boolean {
-    const commander = state.commanders.get(commanderId);
-    if (!commander) return false;
-
-    const adjacentPositions = [
-      { x: commander.position.x - 1, y: commander.position.y },
-      { x: commander.position.x + 1, y: commander.position.y },
-      { x: commander.position.x, y: commander.position.y - 1 },
-      { x: commander.position.x, y: commander.position.y + 1 },
-      { x: commander.position.x - 1, y: commander.position.y - 1 },
-      { x: commander.position.x + 1, y: commander.position.y - 1 },
-      { x: commander.position.x - 1, y: commander.position.y + 1 },
-      { x: commander.position.x + 1, y: commander.position.y + 1 },
-    ];
-
-    for (const [id, cmd] of state.commanders) {
-      if (cmd.playerId !== commander.playerId &&
-          cmd.type === 'infantry' &&
-          adjacentPositions.some(pos => pos.x === cmd.position.x && pos.y === cmd.position.y)) {
-        return true;
-      }
-    }
-
-    return false;
   }
 
   /**
@@ -1066,7 +1079,7 @@ export class GameRenderer {
       
       const graphics = new PIXI.Graphics();
       const playerIndex = state.players.findIndex(p => p.id === banner.playerId);
-      const playerColor = PLAYER_COLORS[playerIndex] || COLORS.PLAYER_1;
+      const playerColor = parsePlayerColor(state.players[playerIndex]?.color ?? '', PLAYER_COLORS[playerIndex] || COLORS.PLAYER_1);
       
       // Banner dimensions
       const bannerWidth = size * 0.5;
@@ -1149,7 +1162,7 @@ export class GameRenderer {
       // 1. Zeichne das Kommandeur-Quadrat mit abgerundeten Ecken
       // Hellbrauner Hintergrund für den Kommandeur
       const playerIndex = state.players.findIndex(p => p.id === commander.playerId);
-      const playerColor = PLAYER_COLORS[playerIndex] || COLORS.PLAYER_1;
+      const playerColor = parsePlayerColor(state.players[playerIndex]?.color ?? '', PLAYER_COLORS[playerIndex] || COLORS.PLAYER_1);
 
       // Äußerer Rahmen des Kommandeurs - alle Ränder gleich dick und gleiche Farbe
       const borderWidth = 1 * this.camera.zoom; // Dünnere Randbreite
@@ -1379,7 +1392,7 @@ export class GameRenderer {
   /**
    * Pan camera smoothly
    */
-  panCamera(delta: Position, duration: number = 300): void {
+  panCamera(delta: Position, _duration: number = 300): void {
     const newX = this.camera.position.x + delta.x;
     const newY = this.camera.position.y + delta.y;
     this.camera = { ...this.camera, position: { x: newX, y: newY } };
@@ -1388,7 +1401,7 @@ export class GameRenderer {
   /**
    * Zoom camera smoothly
    */
-  zoomCamera(targetZoom: number, duration: number = 300): void {
+  zoomCamera(targetZoom: number, _duration: number = 300): void {
     this.setZoom(targetZoom);
   }
 
@@ -1579,9 +1592,17 @@ export class GameRenderer {
    * Dispose all resources
    */
   dispose(): void {
-    window.removeEventListener('resize', () => this.handleResize());
+    if (this.isDisposed) return;
+    this.isDisposed = true;
+    this.cancelDrag();
+    this.callbacks = {};
+    for (const cleanup of this.inputCleanup.splice(0)) cleanup();
+    if (this.resizeHandler) {
+      window.removeEventListener('resize', this.resizeHandler);
+      this.resizeHandler = null;
+    }
     this.animationManager.dispose();
-    this.app.destroy(true);
+    this.app.destroy(true, { children: true, texture: true, baseTexture: true });
   }
 }
 

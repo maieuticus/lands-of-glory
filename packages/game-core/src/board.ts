@@ -79,6 +79,8 @@ export function getOccupant(board: Board, position: Position): CommanderId | und
  */
 export function isPositionInBounds(position: Position): boolean {
   return (
+    Number.isInteger(position.x) &&
+    Number.isInteger(position.y) &&
     position.x >= 0 &&
     position.x < BOARD_WIDTH &&
     position.y >= 0 &&
@@ -186,7 +188,8 @@ export function removeCommanderFromPosition(
   const newTiles = board.tiles.map((col, x) =>
     col.map((tile, y) => {
       if (x === position.x && y === position.y) {
-        const { occupant, ...rest } = tile;
+        const rest = { ...tile };
+        delete rest.occupant;
         return rest;
       }
       return tile;
@@ -221,7 +224,7 @@ export function moveCommanderOnBoard(
 }
 
 /**
- * Get all adjacent positions to a given position (4-directional: up, down, left, right)
+ * Get all adjacent positions in the eight movement directions.
  *
  * Only returns positions that are in bounds.
  *
@@ -234,6 +237,10 @@ export function getAdjacentPositions(position: Position): Position[] {
     { x: position.x + 1, y: position.y }, // right
     { x: position.x, y: position.y - 1 }, // up
     { x: position.x, y: position.y + 1 }, // down
+    { x: position.x - 1, y: position.y - 1 },
+    { x: position.x + 1, y: position.y - 1 },
+    { x: position.x - 1, y: position.y + 1 },
+    { x: position.x + 1, y: position.y + 1 },
   ];
 
   return adjacent.filter(isPositionInBounds);
@@ -302,6 +309,9 @@ export function areAdjacent(position1: Position, position2: Position): boolean {
  * @returns Array of positions along line
  */
 export function getLineOfSight(from: Position, to: Position): Position[] {
+  if (!isPositionInBounds(from) || !isPositionInBounds(to)) {
+    throw new RangeError('Line of sight requires valid board coordinates');
+  }
   const positions: Position[] = [];
   const dx = Math.abs(to.x - from.x);
   const dy = Math.abs(to.y - from.y);
@@ -312,16 +322,7 @@ export function getLineOfSight(from: Position, to: Position): Position[] {
   let x = from.x;
   let y = from.y;
 
-  while (true) {
-    if (x !== from.x || y !== from.y) {
-      // Don't include the starting position
-      positions.push({ x, y });
-    }
-
-    if (x === to.x && y === to.y) {
-      break;
-    }
-
+  while (x !== to.x || y !== to.y) {
     const e2 = 2 * err;
     if (e2 > -dy) {
       err -= dy;
@@ -331,6 +332,8 @@ export function getLineOfSight(from: Position, to: Position): Position[] {
       err += dx;
       y += sy;
     }
+    // Include each reached tile, including the destination, but not the origin.
+    positions.push({ x, y });
   }
 
   return positions;

@@ -32,10 +32,10 @@ canvas {
   display: block !important;
   width: 100% !important;
   height: 100% !important;
-  position: fixed !important;
+  position: absolute !important;
   top: 0 !important;
   left: 0 !important;
-  z-index: 9999 !important;
+  z-index: 0 !important;
 }
 
 /* UI Overlay Styles */
@@ -46,7 +46,96 @@ canvas {
   right: 0;
   bottom: 0;
   pointer-events: none;
+  z-index: 20;
+}
+
+.game-topbar {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  right: 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+
+.turn-summary,
+.game-actions,
+.holding-options {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+#active-player-color {
+  width: 18px;
+  height: 18px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+}
+
+#round-label {
+  color: #ffd700;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.72);
+  pointer-events: auto;
   z-index: 100;
+}
+
+.holding-dialog {
+  width: min(680px, 100%);
+  text-align: center;
+}
+
+.holding-dialog h2 {
+  margin-bottom: 12px;
+  color: #ffd700;
+}
+
+.holding-dialog p {
+  margin-bottom: 18px;
+  line-height: 1.5;
+}
+
+.holding-options {
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.game-notification {
+  position: absolute;
+  top: 86px;
+  left: 50%;
+  max-width: min(600px, 90vw);
+  padding: 12px 18px;
+  transform: translateX(-50%);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid #60a5fa;
+  pointer-events: none;
+}
+
+.game-notification.warning { border-color: #fbbf24; }
+.game-notification.error { border-color: #f87171; }
+
+.startup-error {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 24px;
+  text-align: center;
 }
 
 .ui-panel {
@@ -197,6 +286,11 @@ canvas {
   padding: 12px;
   -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
+}
+
+.selected-info[hidden],
+.game-notification[hidden] {
+  display: none;
 }
 
 /* Player color box at top */
@@ -361,6 +455,15 @@ canvas {
 
 /* Responsive */
 @media (max-width: 768px) {
+  .game-topbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .game-actions {
+    flex-wrap: wrap;
+  }
+
   .combat-log {
     width: 250px;
     max-height: 200px;

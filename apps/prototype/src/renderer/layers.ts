@@ -68,7 +68,7 @@ export class BoardLayer implements RenderLayer {
   name = 'board';
   priority = 0;
 
-  constructor(config: BoardLayerConfig) {}
+  constructor(_config: BoardLayerConfig) {}
 
   clear(): void {}
   dispose(): void {}
@@ -81,7 +81,7 @@ export class UnitLayer implements RenderLayer {
   name = 'units';
   priority = 1;
 
-  constructor(tileSize: number) {}
+  constructor(_tileSize: number) {}
 
   clear(): void {}
   dispose(): void {}
