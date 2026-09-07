@@ -51,7 +51,9 @@ export function synchronizeState(state: GameState): GameState {
 
 /** timestamp is a deterministic logical event number, not wall-clock time. */
 export function logEvent(state: GameState, event: Omit<Action, 'timestamp'>): GameState {
-  return { ...state, log: [...state.log, { ...event, timestamp: state.log.length }] };
+  return { ...state, log: [...state.log, {
+    ...event, details: { ...event.details, turnNumber: state.turnNumber }, timestamp: state.log.length,
+  }] };
 }
 
 export function stateKey(state: GameState): string {

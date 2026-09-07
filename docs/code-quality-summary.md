@@ -1,4 +1,6 @@
-# Code Quality Improvements Summary
+# Code Quality Improvements Summary (historical report)
+
+> Historical report from an earlier phase. Do not interpret its targets or test counts as the current project status; see [`docs/implementation-plan.md`](implementation-plan.md).
 
 ## Overview
 

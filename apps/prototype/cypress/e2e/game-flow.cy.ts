@@ -25,7 +25,7 @@ function quickStart(playerCount: 2 | 3 | 4 = 2): void {
   cy.visit('/?e2e=1', { onBeforeLoad: () => options(playerCount) });
   cy.get('[data-testid="quick-start"]').click();
   cy.get('canvas').should('be.visible');
-  cy.get('#game-ui').should('be.visible');
+  cy.get('.game-topbar').should('be.visible');
 }
 
 function withApi(callback: (api: TestApi) => void): void {
@@ -91,7 +91,9 @@ describe('Brettaktionen und Core-Synchronisierung', () => {
       expect(api.drop(commanderId, { x: 99, y: 99 })).to.equal(false);
       expect(api.getState()).to.equal(before);
     });
-    cy.get('#game-notification').should('be.visible');
+    cy.get('#game-notification')
+      .should('not.have.attr', 'hidden')
+      .and('have.class', 'error');
   });
 
   it('erzwingt die Festhalte-Auswahl und sperrt während der Kampfanimation weitere Eingaben', () => {
@@ -111,7 +113,9 @@ describe('Brettaktionen und Core-Synchronisierung', () => {
     });
 
     cy.get('[data-testid="holding-dialog"]').should('be.visible');
-    cy.get('[data-testid="hold-waive"]').click();
+    cy.get('[data-testid="holding-dialog"] .holding-options .btn-primary').first().click();
+    cy.get('#holding-status button').should('be.visible').click();
+    cy.get('#holding-status').should('not.be.visible');
     withApi(api => {
       expect(api.getPhase()).to.equal('idle');
       expect(api.endTurn()).to.equal(true);

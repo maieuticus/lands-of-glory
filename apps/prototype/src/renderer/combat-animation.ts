@@ -160,19 +160,13 @@ export class CombatDiceAnimation {
     this.onCompleteCallback = onComplete;
     this.diceRows = [];
 
-    // Unit info panel ausblenden
-    const unitInfoPanel = document.getElementById('unit-info-panel');
-    if (unitInfoPanel) {
-      unitInfoPanel.style.display = 'none';
-    }
-    
     const playerColors: PlayerColors = {
       attackerColor,
       defenderColor,
     };
     
     // Clear previous animation
-    this.container.removeChildren();
+    this.destroyChildren(this.container);
     this.container.visible = true;
     
     // Create main scaled container for compact view
@@ -533,7 +527,7 @@ export class CombatDiceAnimation {
     bonusValue: number,
     hasKingBonus: boolean
   ): void {
-    container.removeChildren();
+    this.destroyChildren(container);
     
     // Create the dice
     const dice = this.diceRenderer.createDice(value, playerColor);
@@ -722,13 +716,14 @@ export class CombatDiceAnimation {
         const attackerWins = combatResult.pairs[index]?.attackerWins ?? false;
         
         // Find VS container and add results
-        const vsContainer = parentContainer.children.find(
-          child => child.name === `vsContainer_${index}`
-        ) as PIXI.Container;
+        const vsContainer = parentContainer.getChildByName(
+          `vsContainer_${index}`,
+          true,
+        ) as PIXI.Container | null;
         
         if (vsContainer) {
           // Clear VS container and rebuild with results
-          vsContainer.removeChildren();
+          this.destroyChildren(vsContainer);
           
           // Format: 🎲 Zahl vs Zahl 🎲
           
@@ -960,39 +955,12 @@ export class CombatDiceAnimation {
     this.container.cursor = 'default';
     this.container.removeAllListeners();
     
-    // Clean up dice rows - destroy all containers properly
-    for (const row of this.diceRows) {
-      if (row.attackerDice && !row.attackerDice.destroyed) {
-        row.attackerDice.removeChildren();
-        row.attackerDice.destroy({ children: true });
-      }
-      if (row.defenderDice && !row.defenderDice.destroyed) {
-        row.defenderDice.removeChildren();
-        row.defenderDice.destroy({ children: true });
-      }
-    }
+    // Dice rows belong to the overlay tree. Destroy recursively before dropping references.
+    this.destroyChildren(this.container);
     this.diceRows = [];
-    
-    // Remove all children and destroy them
-    while (this.container.children.length > 0) {
-      const child = this.container.children[0];
-      if (child && !child.destroyed) {
-        if (child instanceof PIXI.Container) {
-          child.removeChildren();
-        }
-        child.destroy({ children: true });
-      }
-      this.container.removeChild(child);
-    }
     
     // Hide container
     this.container.visible = false;
-
-    // Unit info panel wieder anzeigen
-    const unitInfoPanel = document.getElementById('unit-info-panel');
-    if (unitInfoPanel) {
-      unitInfoPanel.style.display = 'block';
-    }
 
     // Clear callback
     const callback = this.onCompleteCallback;
@@ -1005,6 +973,10 @@ export class CombatDiceAnimation {
    */
   isAnimating(): boolean {
     return this.isPlaying;
+  }
+
+  private destroyChildren(container: PIXI.Container): void {
+    for (const child of container.removeChildren()) child.destroy({ children: true });
   }
 
   /**

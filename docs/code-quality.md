@@ -1,4 +1,6 @@
-# Code Quality Standards
+# Code Quality Standards (historical baseline)
+
+> This document records an earlier quality phase. Current commands, thresholds and verified results are maintained in [`docs/implementation-plan.md`](implementation-plan.md) and [`SETUP.md`](../SETUP.md); targets below are not current acceptance claims.
 
 This document outlines the code quality standards for the Lands of Glory project.
 

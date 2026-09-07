@@ -4,6 +4,8 @@ description: "Task list for Lands of Glory implementation"
 
 # Tasks: Lands of Glory Digital Board Game Prototype
 
+> Historical task list from 2025. Its checkboxes are retained for traceability, not current progress. The current completed blocks and verification exceptions are in [docs/implementation-plan.md](../../docs/implementation-plan.md).
+
 **Input**: Design documents from `/specs/002-spec-analysis/`
 
 **Prerequisites**: plan.md ✅, spec.md ✅, research.md ✅, data-model.md ✅, contracts/ ✅

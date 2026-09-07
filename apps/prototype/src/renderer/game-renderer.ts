@@ -134,6 +134,7 @@ export class GameRenderer {
   private uiLayer: PIXI.Container;
   private dragLayer: PIXI.Container; // Separate layer for drag-and-drop (not cleared on render)
   private debugLayer: PIXI.Container;
+  private resultsOverlay?: PIXI.Container;
   
   // Cache for sprites
   private tileSprites: Map<string, PIXI.Graphics> = new Map();
@@ -220,11 +221,6 @@ export class GameRenderer {
     canvas.style.visibility = 'visible';
     canvas.style.border = '0';
     
-    console.log('✅ Canvas created:', canvas.width, 'x', canvas.height);
-    console.log('✅ Canvas in DOM:', document.contains(canvas));
-    console.log('✅ Container children count:', container.children.length);
-    console.log('✅ Container size:', container.clientWidth, 'x', container.clientHeight);
-    console.log('✅ Canvas size:', canvas.clientWidth, 'x', canvas.clientHeight);
 
     // Create layers
     this.boardLayer = new PIXI.Container();
@@ -244,7 +240,6 @@ export class GameRenderer {
 
     // Start the PixiJS ticker to ensure rendering
     this.app.start();
-    console.log('✅ PixiJS ticker started');
 
     // Initialize animation manager
     this.animationManager = new AnimationManager(this.app);
@@ -276,12 +271,10 @@ export class GameRenderer {
    */
   private setupDragEvents(): void {
     const canvas = this.app.view as HTMLCanvasElement;
-    console.log('🔧 setupDragEvents called, canvas:', !!canvas);
     
     // Right-click panning - use capture phase to get events before PIXI
     const onMouseDown = (e: MouseEvent) => {
       if (e.button === 2) {
-        console.log('🖱️ RIGHT MOUSEDOWN - starting pan');
         e.preventDefault();
         e.stopPropagation();
         this.isPanning = true;
@@ -316,7 +309,6 @@ export class GameRenderer {
     
     const onMouseUp = (e: MouseEvent) => {
       if (e.button === 2) {
-        console.log('🖱️ RIGHT MOUSEUP - stopping pan');
         this.isPanning = false;
         canvas.style.cursor = 'default';
       }
@@ -740,6 +732,7 @@ export class GameRenderer {
       .filter(banner => canCaptureBanner(this.currentState!, commanderId, banner.id).valid)
       .map(banner => banner.position);
     for (const target of [...attackTargets, ...bannerTargets]) {
+      validTiles.add(`${target.x},${target.y}`);
       const screen = this.worldToScreen(target);
       const size = this.tileSize * this.camera.zoom;
       rangeOverlay.beginFill(COLORS.INVALID_MOVE, 0.35);
@@ -823,36 +816,28 @@ export class GameRenderer {
    * Render the current game state
    */
   render(state: GameState, uiState: UIState): void {
-    console.log('🎨 Renderer.render() called');
-    
+    if (state.gameStatus !== 'finished' && this.resultsOverlay) {
+      this.resultsOverlay.destroy({ children: true });
+      this.resultsOverlay = undefined;
+    }
     // Store state for interaction handling
     this.currentState = state;
     
-    console.log('🎨 Clearing layers...');
     this.clearLayers();
-    
-    console.log('🎨 Rendering board...');
+
     this.renderBoard(state, uiState);
-    
-    console.log('🎨 Rendering valid moves...');
+
     this.renderValidMoves(state, uiState);
-    
-    console.log('🎨 Rendering banners...');
+
     this.renderBanners(state);
-    
-    console.log('🎨 Rendering commanders...');
+
     this.renderCommanders(state, uiState);
-    
-    console.log('🎨 Rendering held status...');
+
     this.renderHeldStatus(state);
     
     if (uiState.debugEnabled) {
       this.renderDebug(state, uiState);
     }
-    
-    console.log('✅ Render complete. Stage children:', this.app.stage.children.length);
-    console.log('✅ Board layer children:', this.boardLayer.children.length);
-    console.log('✅ Commander layer children:', this.commanderLayer.children.length);
   }
 
   /**
@@ -956,11 +941,12 @@ export class GameRenderer {
    * Clear all layers (except dragLayer which persists during drag operations)
    */
   private clearLayers(): void {
-    this.boardLayer.removeChildren();
-    this.bannerLayer.removeChildren();
-    this.commanderLayer.removeChildren();
-    this.uiLayer.removeChildren();
-    this.debugLayer.removeChildren();
+    for (const layer of [this.boardLayer, this.bannerLayer, this.commanderLayer, this.uiLayer, this.debugLayer]) {
+      for (const child of layer.removeChildren()) child.destroy({ children: true });
+    }
+    this.tileSprites.clear();
+    this.bannerSprites.clear();
+    this.commanderSprites.clear();
     // Note: dragLayer is NOT cleared here - it's managed separately
   }
 
@@ -1349,8 +1335,9 @@ export class GameRenderer {
         debugText += `\nSelected:\n`;
         debugText += `  Type: ${cmd.type}\n`;
         debugText += `  Pos: (${cmd.position.x}, ${cmd.position.y})\n`;
-        debugText += `  Move: ${TROOP_STATS[cmd.type].moveRange}\n`;
-        debugText += `  Attack: ${TROOP_STATS[cmd.type].attackRange}\n`;
+        const effectiveType = getEffectiveTroopType(cmd);
+        debugText += `  Move: ${TROOP_STATS[effectiveType].moveRange}\n`;
+        debugText += `  Attack: ${effectiveType === 'archer' ? '2-3' : TROOP_STATS[effectiveType].attackRange}\n`;
         debugText += `  Acted: ${cmd.hasActedThisTurn}\n`;
       }
     }
@@ -1472,7 +1459,9 @@ export class GameRenderer {
    * Show game results dialog
    */
   showGameResults(results: GameResults): void {
+    this.resultsOverlay?.destroy({ children: true });
     const container = new PIXI.Container();
+    this.resultsOverlay = container;
     
     // Background
     const bg = new PIXI.Graphics();
@@ -1583,6 +1572,7 @@ export class GameRenderer {
     container.hitArea = new PIXI.Rectangle(0, 0, this.camera.viewportWidth, this.camera.viewportHeight);
     container.once('pointerdown', () => {
       container.destroy({ children: true });
+      if (this.resultsOverlay === container) this.resultsOverlay = undefined;
     });
     
     this.app.stage.addChild(container);
@@ -1596,6 +1586,7 @@ export class GameRenderer {
     this.isDisposed = true;
     this.cancelDrag();
     this.callbacks = {};
+    this.resultsOverlay = undefined;
     for (const cleanup of this.inputCleanup.splice(0)) cleanup();
     if (this.resizeHandler) {
       window.removeEventListener('resize', this.resizeHandler);

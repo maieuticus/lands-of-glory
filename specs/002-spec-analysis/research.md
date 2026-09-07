@@ -1,5 +1,7 @@
 # Research: Lands of Glory Digital Prototype
 
+> Historical 2025 research, not current API or implementation status. See [implementation plan](../../docs/implementation-plan.md) and [decisions](../../docs/decisions.md).
+
 **Date**: 2025 | **Feature**: 002-spec-analysis | **Status**: Complete
 
 ## Overview

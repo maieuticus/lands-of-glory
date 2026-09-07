@@ -76,6 +76,9 @@ export class AnimationManager {
   private animations: Map<string, ActiveAnimation> = new Map();
   private animationLayer: PIXI.Container;
   private idCounter = 0;
+  private readonly frameIds = new Set<number>();
+  private readonly tickerCallback = () => this.updateAnimations();
+  private disposed = false;
 
   constructor(app: PIXI.Application) {
     this.app = app;
@@ -83,7 +86,7 @@ export class AnimationManager {
     this.app.stage.addChild(this.animationLayer);
     
     // Start animation loop
-    this.app.ticker.add(() => this.updateAnimations());
+    this.app.ticker.add(this.tickerCallback);
   }
 
   /**
@@ -219,7 +222,7 @@ export class AnimationManager {
       sprite.x = baseX + (Math.random() - 0.5) * intensity;
       sprite.y = baseY + (Math.random() - 0.5) * intensity;
       
-      requestAnimationFrame(shake);
+      this.requestFrame(shake);
     };
     
     shake();
@@ -319,7 +322,7 @@ export class AnimationManager {
       ring.alpha = alpha;
       
       if (this.animations.has(id)) {
-        requestAnimationFrame(pulse);
+        this.requestFrame(pulse);
       } else {
         ring.destroy();
       }
@@ -410,11 +413,25 @@ export class AnimationManager {
     }
   }
 
+  private requestFrame(callback: () => void): void {
+    if (this.disposed) return;
+    const id = requestAnimationFrame(() => {
+      this.frameIds.delete(id);
+      callback();
+    });
+    this.frameIds.add(id);
+  }
+
   /**
    * Dispose animation manager
    */
   dispose(): void {
-    this.stopAllAnimations();
-    this.animationLayer.destroy();
+    if (this.disposed) return;
+    this.disposed = true;
+    this.animations.clear();
+    this.frameIds.forEach(id => cancelAnimationFrame(id));
+    this.frameIds.clear();
+    this.app.ticker.remove(this.tickerCallback);
+    this.animationLayer.destroy({ children: true });
   }
 }

@@ -56,4 +56,4 @@ Abfragen: `canMove`, `getValidMoves`, `canAttack`, `getValidAttacks`, `canCaptur
 Zustandsänderungen: `applyCommand` beziehungsweise `moveCommander`, `attackCommander`, `captureBanner`, `setHoldingTarget`, `endTurn`.
 Kampf-Vorschau: `resolveCombat`; Anwendung: `applyCombatResult` prüft Ausgangszustand, Ergebnis und Würfel erneut. Ein veraltetes Ergebnis wird abgewiesen.
 
-Die UI-Anbindung einschließlich Auswahl der Festhaltung und Verhinderung veralteter Animationscallbacks ist Block 3. Der Renderer-Vertrag bleibt bis dahin als historischer Entwurf gekennzeichnet.
+Die UI-Anbindung wurde in Block 3 umgesetzt und in Block 5 um das Lösen bestehender Festhaltungen und zusätzliche Controller-/Ressourcentests ergänzt. Der Renderer-Vertrag bleibt ein historischer Entwurf; die tatsächliche Darstellung steht in `apps/prototype/src/renderer/`. Prüfstand und die ausgelassene Browserabnahme sind im [Implementierungsplan](implementation-plan.md) dokumentiert.

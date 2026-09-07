@@ -23,12 +23,10 @@ Die Benutzerentscheidungen zu Reichweiten, Gleichständen, Festhalten, Gratisein
 
 Jede Erweiterung benötigt eine gesonderte fachliche Beschreibung, Umfang, Datenmodell, UI-Verhalten und Tests.
 
-## Übergaben in den bestehenden Implementierungsplan
+## Abschluss des bestehenden Implementierungsplans
 
-Block 3: Core-Aktionen statt doppelter Controller-Regeln; Auswahl und Verzicht beim Festhalten durch den Infanteriebesitzer; veraltete Kampfcallbacks abweisen; UI-Anzeigen, Undo und Browser-Tests angleichen.
+Blöcke 3–5 sind umgesetzt: Core-UI-Anbindung, Festhalte-Auswahl einschließlich Lösen bestehender Festhaltungen, Animationen, Undo, Regressionstests, Dokumentationsabgleich und kontrollierte Bereinigung. Der Altbestand wurde vollständig gesichert und entfernt; Wiederherstellung siehe [Altvergleich](../docs/alt-comparison.md).
 
-Block 4: README, Architektur, Datenmodell, Terminologie und historische Berichte aktualisieren. Referenzgrafiken und Asset-Lizenzen dokumentieren; fehlende Lizenzangaben bleiben organisatorische offene Punkte.
-
-Block 5: Gesamtprüfung, erneuter Altvergleich und überprüfte Bereinigung. Einzigartige Dateien und Historie vor einer Löschung sichern.
+Die abschließenden Cypress- und manuellen Browserläufe bleiben auf Nutzerwunsch ausgelassen; Remote-CI und Performance sind ungeprüft. Details stehen im [Abschlussprotokoll](../docs/implementation-plan.md). Die fehlende Projekt-Lizenzdatei samt Rechteinhaber bleibt ein offener organisatorischer Punkt.
 
 Die Browserabnahme ist kein Ergebnis allein der erfolgreichen Core-Tests.

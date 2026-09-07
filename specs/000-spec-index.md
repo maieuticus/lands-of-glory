@@ -16,7 +16,7 @@ Stand: 2026-09-06. Verbindliche Grundlage sind die vom Benutzer bestätigten [Re
 
 Zuerst die Entscheidungen lesen, dann die betroffene Fachspec und ihre verlinkten Tests. Die aktuelle Fachfassung fasst Regeln, Auswirkungen und Abnahmefälle nach Thema zusammen. Konkrete automatisierte Szenarien stehen in `packages/game-core/tests/`.
 
-Die Dokumente in `002-spec-analysis/` sind historische Planungsartefakte. Ihr Datenmodell, ihre Statusaussagen und offenen Fragen sind keine aktuelle Regelbasis; die dokumentarische Bereinigung dieser Artefakte folgt in Block 4.
+Die Dokumente in `002-spec-analysis/` sind gekennzeichnete historische Planungsartefakte. Ihr Datenmodell, ihre Statusaussagen und offenen Fragen sind keine aktuelle Regelbasis. Den Abschlussstand einschließlich Abnahme-Ausnahmen beschreibt der [Implementierungsplan](../docs/implementation-plan.md).
 
 PixiJS zeigt; der Core entscheidet. `GameState` enthält den Regelzustand. Anzeige, Auswahl und Animationen bleiben UI-Zustand.
 

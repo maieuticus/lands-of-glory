@@ -137,9 +137,10 @@ export class ArmyBuilderScreen {
       this.playerArmies[this.currentPlayerIndex] = config;
       this.budget = this.armyBuilderUI?.getBudget() ?? this.budget;
       const allArmiesValid = isValid && this.playerArmies.every(army => validateArmyConfig(army, this.budget).valid);
+      const requiresAllArmies = this.currentPlayerIndex === this.playerConfigs.length - 1;
       // Update ALL next buttons (top and bottom)
       this.container.querySelectorAll('.btn-next').forEach((btn) => {
-        (btn as HTMLButtonElement).disabled = !allArmiesValid;
+        (btn as HTMLButtonElement).disabled = !isValid || (requiresAllArmies && !allArmiesValid);
       });
     };
 
@@ -152,8 +153,9 @@ export class ArmyBuilderScreen {
 
     // Set initial button state for ALL buttons
     const allArmiesValid = this.playerArmies.every(army => validateArmyConfig(army, this.budget).valid);
+    const requiresAllArmies = this.currentPlayerIndex === this.playerConfigs.length - 1;
     this.container.querySelectorAll('.btn-next').forEach((btn) => {
-      (btn as HTMLButtonElement).disabled = !this.armyBuilderUI!.isValid() || !allArmiesValid;
+      (btn as HTMLButtonElement).disabled = !this.armyBuilderUI!.isValid() || (requiresAllArmies && !allArmiesValid);
     });
   }
 

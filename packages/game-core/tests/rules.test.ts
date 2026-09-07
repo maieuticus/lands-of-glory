@@ -7,6 +7,15 @@ import {
 import { scenario, waiveHolding, id } from './fixtures';
 
 describe('Authoritative movement and commands', () => {
+  test('events retain their original round after later turn changes', () => {
+    const initial = scenario([{ id: 'a', player: 0, position: { x: 10, y: 10 } }]);
+    const moved = moveCommander(initial, id('a'), { x: 11, y: 10 });
+    const nextRound = endTurn(endTurn(moved));
+    expect(nextRound.turnNumber).toBe(2);
+    expect(nextRound.log.find(event => event.type === 'move')?.details.turnNumber).toBe(1);
+    expect(initial.log).toHaveLength(1);
+  });
+
   test('diagonal moves cost one action and update all occupancy queries without mutating input', () => {
     const state = scenario([{ id: 'a', player: 0, position: { x: 10, y: 10 } }]);
     const target = { x: 11, y: 11 };

@@ -1,5 +1,7 @@
 # Feature Specification: Lands of Glory Digital Board Game Prototype
 
+> Historical 2025 proposal. Current scope and rules: [implementation plan](../../docs/implementation-plan.md) and [decisions](../../docs/decisions.md). Requirements below are not additional current commitments.
+
 **Feature Branch**: `002-spec-analysis`
 
 **Created**: 2025-05-19

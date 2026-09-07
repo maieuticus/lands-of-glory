@@ -1,4 +1,6 @@
-# Implementation Plan: Lands of Glory Digital Board Game Prototype
+# Implementation Plan: Lands of Glory Digital Board Game Prototype (historical)
+
+> This 2025 planning artifact is retained for traceability. The current implementation plan and rule authority are [`docs/implementation-plan.md`](../../docs/implementation-plan.md) and [`docs/decisions.md`](../../docs/decisions.md).
 
 **Branch**: `002-spec-analysis` | **Date**: 2025 | **Spec**: `/specs/002-spec-analysis/spec.md`
 

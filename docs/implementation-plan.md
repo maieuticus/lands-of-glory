@@ -1,8 +1,8 @@
 # Implementierungsliste mit Modellzuordnung
 
-Stand: 2026-09-06. Grundlage: Konsistenzprüfung des Projekts und Vergleich von `alt/lands-of-glory` mit dem aktuellen Repository.
+Stand: 2026-09-07. Grundlage: Konsistenzprüfung des Projekts und Vergleich von `alt/lands-of-glory` mit dem aktuellen Repository.
 
-Status: Block 1 und Block 2 abgeschlossen. Die bestätigten Regeln stehen in `docs/decisions.md`; Block 3 ist die nächste Umsetzung. `alt` bleibt bis Block 5 im Arbeitsbereich.
+Status: Blöcke 1–5 abgeschlossen, Blöcke 3 und 5 mit der ausdrücklich gewünschten Ausnahme der abschließenden Browserabnahme. Die bestätigten Regeln stehen in `docs/decisions.md`. `alt` wurde nach vollständiger, geprüfter Sicherung entfernt; Wiederherstellung siehe [Altvergleich](alt-comparison.md).
 
 ## Modelle und Arbeitsweise
 
@@ -136,52 +136,88 @@ Nächster Block: **3 – GPT-5.6 Sol, High**. Nicht automatisch begonnen.
 
 Modell für alle Aufgaben dieses Blocks: **GPT-5.6 Sol, High**.
 
-- [ ] **T13 – Controller auf den Core umstellen.** Doppelte Regeln für Bewegung, Festhalten, Angriffe und Sieg aus dem Controller entfernen. Auswahl, Zugrecht und Drag-and-Drop an dieselben validierten Aktionen anbinden. Abgewiesene Aktionen lassen die Darstellung in einem gültigen Zustand zurück.
+- [x] **T13 – Controller auf den Core umstellen.** Doppelte Regeln für Bewegung, Festhalten, Angriffe und Sieg aus dem Controller entfernen. Auswahl, Zugrecht und Drag-and-Drop an dieselben validierten Aktionen anbinden. Abgewiesene Aktionen lassen die Darstellung in einem gültigen Zustand zurück.
   - Dateien: `apps/prototype/src/controller/game-controller.ts`, `main.ts`.
   - Fertig: Bedienung und direkte Core-Aktion liefern dieselben Ergebnisse; der Controller enthält keine zweite Kampftabelle oder Siegermittlung.
-- [ ] **T14 – Kampfanimation und Eingaben synchronisieren.** Ausstehende Auflösung explizit behandeln. Währenddessen keine inkompatiblen Aktionen, Zugwechsel oder Undo zulassen. Veraltete Callbacks nach Abbruch/Neustart verhindern. Wiederholte Eingaben dürfen keine zusätzliche Aktion auslösen.
+- [x] **T14 – Kampfanimation und Eingaben synchronisieren.** Ausstehende Auflösung explizit behandeln. Währenddessen keine inkompatiblen Aktionen, Zugwechsel oder Undo zulassen. Veraltete Callbacks nach Abbruch/Neustart verhindern. Wiederholte Eingaben dürfen keine zusätzliche Aktion auslösen.
   - Dateien: `controller/game-controller.ts`, `renderer/combat-animation.ts`, `main.ts`.
   - Fertig: Der reproduzierte Wechsel in eine neue Runde während einer alten Kampfauflösung ist ausgeschlossen; Fehler und Abbruch hinterlassen keinen dauerhaft gesperrten Zustand.
-- [ ] **T15 – Darstellung aus Regelergebnissen ableiten.** Gültige Ziele, Festhalten, effektive Truppengattung und Reichweite vom Core beziehen. Würfelpaarsieger und Verlustmarker direkt aus `CombatResult` lesen. Spielerfarben in Brett, Armee-Editor, Infopanel und Kampf gleich darstellen.
+- [x] **T15 – Darstellung aus Regelergebnissen ableiten.** Gültige Ziele, Festhalten, effektive Truppengattung und Reichweite vom Core beziehen. Würfelpaarsieger und Verlustmarker direkt aus `CombatResult` lesen. Spielerfarben in Brett, Armee-Editor, Infopanel und Kampf gleich darstellen.
   - Dateien: `renderer/game-renderer.ts`, `renderer/combat-animation.ts`, `renderer/dice-renderer.ts`, `main.ts`.
   - Fertig: Gleichstände, leere Commander und Bogenschützen werden ohne Abweichung vom tatsächlichen Ergebnis angezeigt.
-- [ ] **T16 – Menü und Armee-Editor reparieren.** Beim Abbruch des Editors das Startmenü wiederherstellen. Budgetänderungen gegen alle Armeen prüfen; ungültigen Spielstart nachvollziehbar verhindern. Gespeicherte Optionen validieren und mit vollständigen Defaults laden.
+- [x] **T16 – Menü und Armee-Editor reparieren.** Beim Abbruch des Editors das Startmenü wiederherstellen. Budgetänderungen gegen alle Armeen prüfen; ungültigen Spielstart nachvollziehbar verhindern. Gespeicherte Optionen validieren und mit vollständigen Defaults laden.
   - Dateien: `army-builder-screen.ts`, `army-builder-ui.ts`, `start-screen.ts`, `main.ts`.
   - Fertig: Start → Editor → Abbruch → Start und komplette Konfiguration für 2–4 Spieler funktionieren mehrfach hintereinander.
-- [ ] **T17 – Spielinformationen und Ressourcenpflege fertigstellen.** Aktiven Spieler, Runde, Zugende, Debug-Toggle, Fehlerfeedback und Kampfprotokoll sichtbar anbinden. Canvas-/UI-Schichtung, Skalierung und Undo-Anzeige korrigieren. Den funktionslosen Soundschalter bis zur gesondert gewünschten Audiofunktion ausblenden. Controller, Animationen und Renderer mit eindeutiger Bereinigung versehen; große Klassen entlang dieser Verantwortlichkeiten aufteilen, soweit es die Korrekturen erleichtert.
+- [x] **T17 – Spielinformationen und Ressourcenpflege fertigstellen.** Aktiven Spieler, Runde, Zugende, Debug-Toggle, Fehlerfeedback und Kampfprotokoll sichtbar anbinden. Canvas-/UI-Schichtung, Skalierung und Undo-Anzeige korrigieren. Den funktionslosen Soundschalter bis zur gesondert gewünschten Audiofunktion ausblenden. Controller, Animationen und Renderer mit eindeutiger Bereinigung versehen; große Klassen entlang dieser Verantwortlichkeiten aufteilen, soweit es die Korrekturen erleichtert.
   - Dateien: `main.ts`, `style.css`, Controller, Renderer, Animationen und Startbildschirm.
   - Fertig: Bedienung benötigt keine Entwicklerkonsole; Wiederholung/Neustart und Größenänderung erzeugen keine doppelten Listener oder weiterlaufenden Timer. Bestehendes Undo bleibt konsistent mit Spielstatus, Log und Anzeige.
-- [ ] **T18 – Browserabläufe automatisiert prüfen.** Die vorhandene Cypress-Konfiguration passend zur Vite-/Pixi-App korrigieren. Start, Armee-Editor, Drag-and-Drop, ungültige Aktionen, Kampf, Animationseingaben, Zugwechsel und Spielende prüfen. Reproduzierbare Spielszenarien für die Tests bereitstellen.
+- [x] **T18 – Browserabläufe automatisiert prüfen.** Die vorhandene Cypress-Konfiguration passend zur Vite-/Pixi-App korrigieren. Start, Armee-Editor, Drag-and-Drop, ungültige Aktionen, Kampf, Animationseingaben, Zugwechsel und Spielende prüfen. Reproduzierbare Spielszenarien für die Tests bereitstellen.
   - Dateien: `apps/prototype/cypress.config.ts`, App-Testverzeichnis, Testskripte und gegebenenfalls eng begrenzte Testhilfen.
   - Fertig: End-to-End-Tests laufen mit definiert gestarteter App; entscheidende 2-/3-/4-Spieler-Fälle sind abgedeckt. Ergebnisse eines zusätzlichen manuellen Browserdurchlaufs festhalten.
-- [ ] **T19 – Automatische Qualitätsprüfung einrichten.** CI für Installation, Build, Typprüfung, Linting, Core-Tests mit Coverage und Browsertests ergänzen. Eine passende Windows-Prüfung für den lokalen Arbeitsablauf berücksichtigen. Erforderliche Testserver zuverlässig starten und beenden.
+- [x] **T19 – Automatische Qualitätsprüfung einrichten.** CI für Installation, Build, Typprüfung, Linting, Core-Tests mit Coverage und Browsertests ergänzen. Eine passende Windows-Prüfung für den lokalen Arbeitsablauf berücksichtigen. Erforderliche Testserver zuverlässig starten und beenden.
   - Dateien: `.github/workflows/`, Paket-Skripte und Testkonfigurationen.
   - Fertig: Prüfablauf funktioniert lokal; CI-Konfiguration ist überprüft. Ein tatsächlich gelaufener Remote-CI-Status wird nur behauptet, wenn ein autorisierter Remote-Lauf vorliegt.
+
+### Abschlussprotokoll Block 3 (2026-09-07)
+
+T13–T19 sind implementiert. Controller und Renderer beziehen Aktionsziele, Festhalten, effektive Truppengattung, Kampfpaarungen, Verluste und Spielende aus dem Core. Die Festhalte-Auswahl benennt den entscheidenden Spieler, unterstützt Ziel oder Verzicht und blockiert bis zur Entscheidung inkompatible Eingaben. Kampfanimationen halten ihren Ausgangszustand fest; Zugende, Undo und wiederholte Aktionen sind während der Auflösung gesperrt. Abbruch und Neustart entwerten alte Callbacks und räumen Listener, Timer, Animationsframes, Pixi-Ressourcen sowie DOM-Overlays eindeutig auf.
+
+- Menü und Armee-Editor funktionieren für 2–4 Spieler mit validierten gespeicherten Optionen, gemeinsamer Budgetprüfung, maximal 72 Kommandeuren und Rückkehr nach Abbruch. Der nicht implementierte Soundschalter ist ausgeblendet.
+- Sichtbare Spieloberfläche: aktiver Spieler mit Originalfarbe, Runde, Zugende, Undo, Debug, Fehlerfeedback, Einheiteninfo und Core-Ereignisprotokoll. Canvas und DOM-UI besitzen eine eindeutige Schichtung.
+- Cypress-Konfiguration und sieben reproduzierbare Browserfälle decken Menü/Editor, 2-/3-/4-Spielerstart, Pointer-Drag-and-drop, ungültige Aktionen, Festhalten, Animationseingaben, Zugwechsel und Banner-Spielende ab. Eine eng begrenzte Testbrücke wird nur mit `?e2e=1` aktiviert.
+- Zwei lokale Cypress-Läufe wurden tatsächlich ausgeführt: Der zweite Lauf erreichte 6/7 erfolgreiche Fälle; allein die zeitabhängige Sichtbarkeitsassertion des Fehlerhinweises schlug fehl. Diese Assertion und die Anzeigedauer wurden danach korrigiert. Der abschließende Browserlauf sowie ein zusätzlicher manueller Browserdurchlauf wurden auf ausdrücklichen Nutzerwunsch in dieser Umgebung ausgelassen und werden daher nicht als bestanden behauptet.
+- `npm.cmd run verify` erfolgreich: Build, Typprüfung einschließlich Verträge, Linting, 148 Core-Tests mit 97,04 % Statements / 93,63 % Branches / 98,46 % Funktionen / 98,23 % Zeilen sowie 8 Strukturtests. Die bekannte Vite-Warnung für das rund 594-kB-Bundle bleibt ohne Buildfehler.
+- CI führt Installation, Build, Typprüfung, Lint, Coverage und Strukturtests auf Linux und Windows aus; Cypress läuft in einem getrennten Linux-Job mit definiertem Vite-Server. Ein Remote-CI-Lauf wurde nicht ausgelöst und wird nicht behauptet.
+
+Nächster Block: **4 – GPT-5.6 Luna, Medium**. Nicht automatisch begonnen.
+
 
 ## Block 4: Dokumentation und Übergabe
 
 Modell für alle Aufgaben dieses Blocks: **GPT-5.6 Luna, Medium**.
 
-- [ ] **T20 – Einstieg und Status korrigieren.** README, Setup und Workspace-Anleitungen auf den nachgewiesenen Funktionsumfang und die tatsächlich geprüften Befehle bringen. Unbelegte Aussagen wie „produktionsreif“, „0 bekannte Bugs“ oder alte Testzahlen entfernen beziehungsweise durch nachgewiesene Angaben ersetzen.
+- [x] **T20 – Einstieg und Status korrigieren.** README, Setup und Workspace-Anleitungen auf den nachgewiesenen Funktionsumfang und die tatsächlich geprüften Befehle bringen. Unbelegte Aussagen wie „produktionsreif“, „0 bekannte Bugs“ oder alte Testzahlen entfernen beziehungsweise durch nachgewiesene Angaben ersetzen.
   - Dateien: `README.md`, `SETUP.md`, `PRODUCTION-READY.md`, Workspace-READMEs, `docs/quickstart.md`.
   - Fertig: Neue Entwickler können dem dokumentierten Ablauf folgen; lokale und noch nicht ausgeführte Remote-Prüfungen sind klar bezeichnet.
-- [ ] **T21 – Fachliche Dokumentation synchronisieren.** Architektur, Datenmodell, Terminologie, Roadmap und Planungsartefakte an T05 und den fertigen Code angleichen. Historische Phasenberichte eindeutig kennzeichnen. Die leere Projekt-Constitution nur mit bereits beschlossenen Projektregeln füllen; keine neuen Freigabepflichten oder Prozessregeln erfinden.
+- [x] **T21 – Fachliche Dokumentation synchronisieren.** Architektur, Datenmodell, Terminologie, Roadmap und Planungsartefakte an T05 und den fertigen Code angleichen. Historische Phasenberichte eindeutig kennzeichnen. Die leere Projekt-Constitution nur mit bereits beschlossenen Projektregeln füllen; keine neuen Freigabepflichten oder Prozessregeln erfinden.
   - Dateien: `docs/`, `specs/`, `.github/copilot-instructions.md`, `.github/pull_request_template.md`, `.specify/memory/constitution.md`.
   - Fertig: Keine parallelen widersprüchlichen Aussagen zu Regelbasis, API, Koordinaten, Spielumfang oder Projektstatus. Neu entdeckte fachliche Konflikte an Block 5 melden statt eigenständig entscheiden.
-- [ ] **T22 – Beispiele und Bereinigung vorbereiten.** Zweck der vorhandenen Würfel-/Tile-Demos dokumentieren und ihre späteren Zielpfade unter `examples/` festhalten. Den Altvergleich mit den fünf Abweichungen und der optionalen kleinen Armee dokumentieren. Fehlende Lizenzdatei als konkreten offenen Punkt erfassen; Rechteinhaber nicht erfinden.
+- [x] **T22 – Beispiele und Bereinigung vorbereiten.** Zweck der vorhandenen Würfel-/Tile-Demos dokumentieren und ihre späteren Zielpfade unter `examples/` festhalten. Den Altvergleich mit den fünf Abweichungen und der optionalen kleinen Armee dokumentieren. Fehlende Lizenzdatei als konkreten offenen Punkt erfassen; Rechteinhaber nicht erfinden.
   - Dateien: Dokumentation der Beispiele und `alt`, diese Implementierungsliste.
   - Fertig: Es ist klar, welche Beispiele bleiben, welche Dateien verschoben werden sollen und dass „alt“ keine einzigartige Implementierung enthält. Die eigentliche Verschiebung und Löschung erfolgen in Block 5.
+
+### Abschlussprotokoll Block 4 (2026-09-07)
+
+T20–T22 sind umgesetzt. Einstieg, Setup, Architektur, Datenmodell, Terminologie und Roadmap beschreiben den aktuellen lokalen Version-1-Prototyp. Historische Entwürfe und Referenzkoordinaten sind gekennzeichnet. Die eigenständigen Demos und der Altvergleich stehen in [`docs/examples.md`](examples.md) und [`docs/alt-comparison.md`](alt-comparison.md); es wurden keine Dateien aus `alt` gelöscht. Eine Lizenzdatei für mögliche Assets fehlt weiterhin. Die nicht abschließende Cypress-/manuelle Browserabnahme aus Block 3 bleibt ausdrücklich ungeprüft.
+
+Nächster Block: **5 – GPT-6 Astra, High**. Erst danach dürfen Gesamtabnahme, erneuter Altvergleich und die vorbereitete Bereinigung erfolgen.
 
 ## Block 5: Abnahme und Entfernung von `alt`
 
 Modell für alle Aufgaben dieses Blocks: **GPT-6 Astra, High**.
 
-- [ ] **T23 – Gesamtabnahme mit Fehlerkorrekturen.** Beschlossene Regeln gegen Core, UI, Tests und Dokumentation prüfen. Besondere Aufmerksamkeit: Mehrspieler-Niederlage, leere Commander, Festhalten, Gleichstände, Gratiseinheiten, Undo, Animationseingaben, Ergebniswertung und unveränderte Zustände nach ungültigen Aktionen. Dabei gefundene Fehler im Rahmen des beschlossenen Umfangs beheben und passend nachprüfen.
+- [x] **T23 – Gesamtabnahme mit Fehlerkorrekturen.** Beschlossene Regeln gegen Core, UI, Tests und Dokumentation prüfen. Besondere Aufmerksamkeit: Mehrspieler-Niederlage, leere Commander, Festhalten, Gleichstände, Gratiseinheiten, Undo, Animationseingaben, Ergebniswertung und unveränderte Zustände nach ungültigen Aktionen. Dabei gefundene Fehler im Rahmen des beschlossenen Umfangs beheben und passend nachprüfen.
   - Fertig: Keine offenen blockierenden Fehler; verbleibende nicht blockierende Einschränkungen sind konkret dokumentiert. Browser-/Performance-Aussagen beruhen auf tatsächlichen Prüfungen.
-- [ ] **T24 – Altvergleich erneuern und Bereinigung durchführen.** Vor der Löschung den Zustand von `alt/lands-of-glory` erneut prüfen, einschließlich uncommitteter Änderungen, Branches, Stashes und zusätzlicher Historie. Seit dem ersten Vergleich entstandene einzigartige Inhalte zunächst sichern oder integrieren. Referenzen auf `alt` prüfen. Freigegebene Demos nach `examples/` verschieben und Verweise aktualisieren. Erst bei abgeschlossenem Vergleich ausschließlich den aufgelösten Projektunterordner `C:/Git/lands-of-glory/alt` entfernen; eine wiederherstellbare Entfernung bevorzugen.
+- [x] **T24 – Altvergleich erneuern und Bereinigung durchführen.** Vor der Löschung den Zustand von `alt/lands-of-glory` erneut prüfen, einschließlich uncommitteter Änderungen, Branches, Stashes und zusätzlicher Historie. Seit dem ersten Vergleich entstandene einzigartige Inhalte zunächst sichern oder integrieren. Referenzen auf `alt` prüfen. Freigegebene Demos nach `examples/` verschieben und Verweise aktualisieren. Erst bei abgeschlossenem Vergleich ausschließlich den aufgelösten Projektunterordner `C:/Git/lands-of-glory/alt` entfernen; eine wiederherstellbare Entfernung bevorzugen.
   - Fertig: Keine einzigartige Datei oder Git-Historie geht verloren; das aktive Projekt benötigt `alt` nicht. Bericht nennt entfernten Pfad und Wiederherstellungsmöglichkeit. Die Beauftragung dieses Blocks umfasst diese konkret beschriebene Bereinigung; bei neuen unklaren Inhalten wird gezielt nachgefragt.
-- [ ] **T25 – Abschlussprüfung und Übergabe.** Nach relevanten Codekorrekturen und Dateiverschiebungen Build, Typprüfung, Linting, Unit-Tests mit Coverage, Strukturtests und Browsertests ausführen. Betroffene Dokumentationslinks prüfen und Fortschritt abschließen.
+- [x] **T25 – Abschlussprüfung und Übergabe.** Nach relevanten Codekorrekturen und Dateiverschiebungen Build, Typprüfung, Linting, Unit-Tests mit Coverage, Strukturtests und Browsertests ausführen. Betroffene Dokumentationslinks prüfen und Fortschritt abschließen.
   - Fertig: Prüfresultate, bekannte Einschränkungen und endgültiger Stand sind dokumentiert. Ein nicht ausgeführter Test bleibt ausdrücklich ungeprüft. Keine unnötigen Testwiederholungen, wenn seit einem erfolgreichen Lauf keine relevante Änderung erfolgte.
+
+### Abschlussprotokoll Block 5 (2026-09-07)
+
+T23–T25 sind abgeschlossen unter Fortführung der vom Benutzer gewünschten Browser-Ausnahme.
+
+- R01–R09 gegen Core, Controller, Darstellungsabläufe und vorhandene Tests abgeglichen. Die neue Schaltfläche zum Lösen bestehender Festhaltungen verwendet die Core-Entscheidung des Infanteriebesitzers. Undo stellt die vollständige Festhaltung wieder her.
+- Gefundene Fehler korrigiert: verschachtelte Würfel-/Overlay-Grafiken werden beim Ersetzen und Schließen rekursiv freigegeben; fehlgeschlagener Animationsstart räumt die Vorschau auf; Animationen setzen keine widersprüchlichen Inline-Anzeigen am Unit-Panel mehr; Protokollereignisse speichern ihre ursprüngliche Runde; Undo benennt die tatsächlich zurückgenommene Aktion.
+- Neue Regressionen bestätigten vor der Korrektur die fehlende Ressourcenfreigabe und Rundenzuordnung. Sechs zusätzliche Tests prüfen Controller mit echtem Core und gesteuertem Animationsabschluss sowie echte Pixi-Container ohne Browser. `npm run test:integration` ist Teil von `verify` und der Linux-/Windows-CI-Konfiguration.
+- `npm.cmd run verify` bestanden: Build, Typprüfung einschließlich Core-Vertrag, Lint, 149 Core-Tests in acht Suites, 6 Integrations-/Ressourcentests in zwei Suites, 8 Strukturtests. Core-Coverage: Statements 97,04 %, Branches 93,63 %, Funktionen 98,46 %, Zeilen 98,23 %. Alle unveränderten 80-%-Schwellen bestanden.
+- Vier Demos unter `examples/` erhalten. Das TypeScript-Beispiel wurde auf die aktuelle API und gültige Kampfszenarien gebracht; `npm.cmd run demo:dice` erfolgreich. HTML-Beispiele bleiben gekennzeichnete visuelle Studien.
+- Altvergleich erneuert: 148 Projektdateien, vor den Demo-Verschiebungen 90 identisch und 58 verändert, keine einzigartigen Altpfade. Alle 33 alten Commits und Reflog-Ziele im aktiven Repository enthalten; keine uncommitteten/ignorierten/untracked Dateien, Stashes oder zusätzlich gefundenen Git-Objekte.
+- Vollständige Sicherung einschließlich `.git` erstellt, testweise entpackt und alle 176 Dateien per SHA-256 verglichen; wiederhergestelltes Git mit `fsck` geprüft. Danach ausschließlich `C:/Git/lands-of-glory/alt` sowie die temporäre Prüfkopie entfernt. Archiv und Wiederherstellung: [alt-comparison.md](alt-comparison.md).
+- Dokumentation und Demo-Verweise aktualisiert; 51 lokale Linkziele in 24 aktiven Markdown-Dateien und `git diff --check` erfolgreich geprüft. Es gibt keine Laufzeit-/Build-Abhängigkeit von `alt`.
+- Fortbestehende Abnahmegrenzen: abschließender Cypress-Lauf (einschließlich des ergänzten Festhalte-Lösen-Ablaufs) und manuelle Browserabnahme auf Nutzerwunsch ausgelassen; Remote-CI nicht ausgelöst; Performance nicht gemessen. Vite warnt weiterhin vor dem nun rund 595-kB-Bundle. Paketmetadaten nennen MIT, aber eine Projekt-Lizenzdatei mit geklärtem Rechteinhaber fehlt.
+
+Kein weiterer Pflichtblock offen. O01–O03 bleiben optionale, separat zu beauftragende Erweiterungen. Keine Commits, Pushes oder Veröffentlichungen vorgenommen.
 
 ## Optionale Erweiterungen
 
@@ -214,6 +250,6 @@ Für spätere Blöcke lediglich die Nummer ersetzen. Bei einem neuen Chat dient 
 |---|---|---|
 | 1 | Abgeschlossen | Installation in temporärer Kopie, Build, Typprüfung, Linting und bestehende Tests geprüft; siehe Prüfprotokoll oben. |
 | 2 | Abgeschlossen | R01–R09 umgesetzt; 148 Tests, alle Coverage-Schwellen, Build/Typprüfung/Linting/Strukturtests bestanden. UI-Anbindung und Festhalte-Dialog siehe Übergabe an Block 3. |
-| 3 | Offen | Keine vorhandenen End-to-End-Testdateien und kein vollständiger interaktiver Browserdurchlauf aus der Ausgangsprüfung. |
-| 4 | Offen | Widersprüchliche Projektstände in README, Specs, API-Entwürfen und Phasenberichten. |
-| 5 | Offen | Ausgangsvergleich: 148 Altdateien außerhalb `.git`, 143 identisch, fünf ältere Varianten, keine einzigartigen Projektdateien oder fehlenden alten Commits gefunden. |
+| 3 | Abgeschlossen mit Abnahme-Ausnahme | Core-UI-Anbindung, Festhalte-Dialog, Animationssperren, Ressourcenbereinigung, Menü/Editor, Cypress-Fälle und CI umgesetzt. Nichtgrafische Prüfkette bestanden; abschließender Cypress- und manueller Browserlauf auf Nutzerwunsch ausgelassen, siehe Abschlussprotokoll. |
+| 4 | Abgeschlossen | Einstieg, fachliche Dokumentation, historische Referenzen, Demos und Altvergleich synchronisiert; Browserabnahme bleibt wie in Block 3 dokumentiert offen. |
+| 5 | Abgeschlossen mit Abnahme-Ausnahme | Gefundene UI-/Ressourcen-/Protokollfehler korrigiert; 149 Core-, 6 Integrations- und 8 Strukturtests bestanden. Vier Demos verschoben, alle 33 alten Commits vorhanden, `alt` nach geprüftem Archiv entfernt. Abschließende Browserläufe weiterhin auf Nutzerwunsch ausgelassen. |

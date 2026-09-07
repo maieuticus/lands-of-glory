@@ -58,11 +58,11 @@ Beispiele:
 | ungültiger Drop | rote Markierung |
 | Debug | Overlay, Panel oder Log-Ausgabe |
 
-## Referenz: 24 × 24-Startaufstellung
+## Historische Referenz: 24 × 24-Startaufstellung
 
-Die Startaufstellung basiert auf einer bereitgestellten 24 × 24-Grafik.
+Die folgende Grafikbeschreibung ist eine ältere visuelle Referenz und nicht die aktuelle Regelquelle. Verbindlich sind `getStartArea` und die Bannerpositionen im Game-Core; die UI darf daraus keine eigenen Koordinaten ableiten.
 
-Verbindliche Geometrie:
+Historische Geometrie (nicht implementieren):
 
 ```txt
 Player 1:
@@ -86,13 +86,17 @@ Player 2:
   - (16, 16)
 ```
 
-Koordinatensystem:
+Koordinatensystem der aktuellen API:
 
 - `x` = Spalte
 - `y` = Zeile
-- `(1, 1)` liegt oben links
+- `(0, 0)` liegt oben links
 
-Die frühere abweichende Beispielaufstellung auf weit gegenüberliegenden Brettseiten wird für Version 1 verworfen.
+Die konkrete alte Beispielaufstellung wird nicht als Version-1-Startaufstellung behauptet.
+
+## Demos und Lizenzen
+
+Zweck und vorgesehene Zielpfade der eigenständigen Würfel-/Tile-Demos stehen in [`examples.md`](examples.md). Für eingebettete oder künftig übernommene Assets fehlt derzeit eine belastbare Lizenzdatei; dieser Punkt bleibt für Block 5 offen.
 
 ## Referenz: Commander-Darstellung
 
@@ -180,7 +184,7 @@ Debug kann anzeigen:
 - Boni
 - entfernte Units
 
-Debug gehört zum `PrototypeUiState`, nicht zum `GameState`.
+Debug gehört zum `UIState` der App, nicht zum `GameState`.
 
 ## Spätere Asset-Hinweise
 

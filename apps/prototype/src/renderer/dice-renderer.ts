@@ -4,7 +4,7 @@
  * Visual dice renderer for combat animations
  *
  * Renders dice with dots (1-6) as PixiJS graphics with beautiful gradients
- * Inspired by dice-visual-demo.html
+ * Inspired by examples/dice-visual-demo.html
  */
 
 import * as PIXI from 'pixi.js';
@@ -166,7 +166,7 @@ export class DiceRenderer {
 
   /**
    * Create a dice with bonus/king bonus indicators
-   * Styled like dice-visual-demo.html
+   * Styled like examples/dice-visual-demo.html
    * 
    * Note: Bonus badges and king crown are now handled by CombatDiceAnimation
    * to allow them to appear after rolling
@@ -303,7 +303,7 @@ export class DiceRenderer {
   }
 
   /**
-   * Create a bonus badge like in dice-visual-demo.html
+   * Create a bonus badge like in examples/dice-visual-demo.html
    */
   createBonusBadge(bonusValue: number, x: number, y: number): PIXI.Container {
     const container = new PIXI.Container();

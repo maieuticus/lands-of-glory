@@ -1,5 +1,7 @@
 # Phase 1: Design & Contracts - Completion Summary
 
+> Historischer Phasenbericht aus 2025. Umfang, Zeilenzahlen und Statusbehauptungen beschreiben damalige Entwürfe; aktuell gelten [Implementierungsplan](implementation-plan.md) und [Entscheidungen](decisions.md).
+
 ## 📋 Deliverables
 
 Four comprehensive design documents have been generated for **Lands of Glory** Phase 1:

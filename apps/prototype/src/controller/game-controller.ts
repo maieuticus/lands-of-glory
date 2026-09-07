@@ -187,18 +187,21 @@ export class GameController {
   }
 
   undo(): boolean {
-    if (!this.requireIdle('Während einer Auswahl oder Kampfanimation ist Rückgängig nicht möglich.')) return false;
+    if (this.phase !== 'idle') {
+      this.showMessage('Während einer Auswahl oder Kampfanimation ist Rückgängig nicht möglich.', 'warning');
+      return false;
+    }
     if (this.history.length <= 1) {
       this.showMessage('Nichts zum Rückgängigmachen.', 'error');
       return false;
     }
-    this.history.pop();
+    const undone = this.history.pop()!;
     const previous = this.history[this.history.length - 1];
     this.gameState = previous.state;
     this.presentedVictoryFor = undefined;
     this.clearSelection();
     this.updatePassivePhase();
-    this.showMessage(`Rückgängig: ${previous.description}`, 'info');
+    this.showMessage(`Rückgängig: ${undone.description}`, 'info');
     this.render();
     return true;
   }
@@ -253,6 +256,18 @@ export class GameController {
     if (this.phase !== 'combat') return false;
     this.combatAnimation.close();
     return true;
+  }
+
+  /** In local hot-seat play the holding owner may release their existing target. */
+  releaseHoldingTarget(holderId: CommanderId): boolean {
+    if (!this.requireIdle('Bitte zuerst die aktuelle Auswahl oder Kampfanimation abschließen.')) return false;
+    const decision = this.gameState.holdingDecisions?.find(item => item.holderId === holderId && item.targetId !== null);
+    const holder = decision?.targetId ? getHoldingCommander(this.gameState, decision.targetId) : undefined;
+    if (!holder || holder.id !== holderId) return this.reject('Diese Festhaltung besteht nicht mehr.');
+    return this.applyCoreAction(
+      () => setHoldingTarget(this.gameState, holder.playerId, holderId, null),
+      'Festhaltung gelöst',
+    );
   }
 
   destroy(): void {
@@ -333,6 +348,8 @@ export class GameController {
       );
       return true;
     } catch (error) {
+      this.operationToken++;
+      this.combatAnimation.close(false);
       this.phase = 'idle';
       this.pendingCombat = undefined;
       return this.handleRuleError(error);
@@ -458,6 +475,7 @@ export class GameController {
         </div>
       </header>
       <aside id="unit-info-panel" class="selected-info ui-panel" hidden></aside>
+      <aside id="holding-status" class="holding-status ui-panel" hidden></aside>
       <aside class="combat-log ui-panel"><h3>Spielprotokoll</h3><div id="combat-log-entries"></div></aside>
       <div class="controls-help ui-panel">Ziehen: Bewegen/Angreifen · <kbd>E</kbd> Zugende · <kbd>Strg+Z</kbd> Rückgängig · <kbd>D</kbd> Debug</div>
       <div id="game-notification" class="game-notification" role="status" aria-live="polite" hidden></div>
@@ -505,6 +523,28 @@ export class GameController {
     this.renderUnitInfo();
     this.renderLog();
     this.renderHoldingDialog();
+    this.renderHoldingStatus();
+  }
+
+  private renderHoldingStatus(): void {
+    const panel = this.uiRoot?.querySelector<HTMLElement>('#holding-status');
+    if (!panel) return;
+    panel.replaceChildren();
+    for (const decision of this.gameState.holdingDecisions ?? []) {
+      if (!decision.targetId) continue;
+      const holder = getHoldingCommander(this.gameState, decision.targetId);
+      const target = this.gameState.commanders.get(decision.targetId);
+      if (!holder || !target) continue;
+      const owner = this.gameState.players.find(player => player.id === holder.playerId);
+      const button = document.createElement('button');
+      button.className = 'btn btn-secondary';
+      button.dataset.testid = `release-${holder.id}`;
+      button.textContent = `${owner?.name ?? 'Spieler'}: Festhaltung bei ${target.position.x}/${target.position.y} lösen`;
+      button.disabled = this.phase !== 'idle';
+      button.addEventListener('click', () => this.releaseHoldingTarget(holder.id));
+      panel.appendChild(button);
+    }
+    panel.hidden = panel.childElementCount === 0;
   }
 
   private renderUnitInfo(): void {
@@ -590,7 +630,7 @@ export class GameController {
     notification.className = `game-notification ${type}`;
     notification.hidden = false;
     if (this.notificationTimer !== undefined) window.clearTimeout(this.notificationTimer);
-    this.notificationTimer = window.setTimeout(() => { notification.hidden = true; }, 3500);
+    this.notificationTimer = window.setTimeout(() => { notification.hidden = true; }, 8000);
   }
 
   private toLogEntry(action: Action, index: number): CombatLogEntry {
